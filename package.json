@@ -1,0 +1,60 @@
+{
+  "name": "PetMemoreal",
+  "type": "module",
+  "private": true,
+  "packageManager": "pnpm@12.6.0",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "build": "nuxt build",
+    "build:vercel": "nuxt build --preset vercel",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "lint": "eslint .",
+    "typecheck": "nuxt typecheck",
+    "test:e2e": "playwright test",
+    "test:unit": "node --import tsx --test tests/unit/*.test.ts",
+    "test:vercel": "playwright test --config=playwright.vercel.config.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node --env-file-if-exists=.env --import tsx scripts/db/migrate.ts",
+    "db:seed": "node --env-file-if-exists=.env --import tsx scripts/db/seed.ts",
+    "db:test": "node --env-file-if-exists=.env --import tsx --test tests/db/*.test.ts",
+    "db:migrate:demo": "node --env-file=.env.vercel --import tsx scripts/db/migrate.ts --remote",
+    "db:seed:demo": "node --env-file=.env.vercel --import tsx scripts/db/seed.ts --remote",
+    "deploy:check": "node --env-file=.env.vercel --import tsx scripts/check-deployment.ts",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1138.0",
+    "@aws-sdk/s3-request-presigner": "^3.1138.0",
+    "@better-auth/drizzle-adapter": "^1.7.5",
+    "@iconify-json/lucide": "^1.2.136",
+    "@nuxt/ui": "^4.11.2",
+    "@nuxtjs/i18n": "^10.6.0",
+    "@vercel/functions": "^3.10.3",
+    "better-auth": "^1.7.5",
+    "drizzle-orm": "^0.45.3",
+    "nodemailer": "^10.0.16",
+    "nuxt": "^4.5.2",
+    "pg": "^8.23.0",
+    "pixi.js": "^8.21.0",
+    "sharp": "^0.35.4",
+    "tailwindcss": "^4.3.3",
+    "vue": "^3.5.43",
+    "vue-router": "^5.3.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@nuxt/eslint": "^1.17.0",
+    "@playwright/test": "^1.63.0",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11",
+    "eslint": "^10.11.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vue-tsc": "^3.3.11"
+  }
+}

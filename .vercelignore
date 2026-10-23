@@ -1,0 +1,11 @@
+.git/
+.env*
+.cache/
+.nuxt/
+.output/
+node_modules/
+test-results/
+playwright-report/
+dev/
+tests/
+*.log
