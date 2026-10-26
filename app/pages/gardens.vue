@@ -8,10 +8,9 @@ definePageMeta({ colorMode: 'light' })
 const { t, locale } = useI18n()
 const route = useRoute()
 const localePath = useLocalePath()
-const switchLocalePath = useSwitchLocalePath()
-const selected = computed(() => findDemoGarden(route.query.garden) ?? demoGardens[0])
+const selected = computed(() => findDemoGarden(route.query.garden))
 const gardenMenuOpen = ref(false)
-const gardenIndex = computed(() => demoGardens.findIndex(garden => garden.id === selected.value.id))
+const gardenIndex = computed(() => demoGardens.findIndex(garden => garden.id === selected.value?.id))
 const previousGarden = computed(() => demoGardens[(gardenIndex.value + demoGardens.length - 1) % demoGardens.length]!)
 const nextGarden = computed(() => demoGardens[(gardenIndex.value + 1) % demoGardens.length]!)
 const { data: saved, error: loadError, status, refresh: reload } = await useAsyncData('map-memorials', () => selected.value ? $fetch<PublicMemorial[]>(`/api/gardens/${selected.value.id}/memorials`) : Promise.resolve([]), { server: false, default: () => [], watch: [() => selected.value?.id] })
@@ -94,24 +93,26 @@ watch(() => selected.value?.id, async () => {
 <template>
   <div class="gardens-page">
     <a href="#garden-main" class="skip-link">{{ t('nav.skip') }}</a>
+    <GardenHeader />
     <main id="garden-main" class="garden-stage">
-      <ClientOnly>
-        <GardenCanvas :garden-id="selected.id" :memorials="records" :focus-id="focusId" :can-create="status === 'success' && !loadError" :editing="creationOpen" @select="selectGarden" @create="createAt" />
-        <template #fallback><div class="garden-fallback"><AppState kind="loading" :title="t('garden.loading')" :description="t('garden.loadingHint')" /></div></template>
-      </ClientOnly>
+      <h1 v-if="!selected" ref="heading" class="sr-only" tabindex="-1">{{ title }}</h1>
+      <div class="garden-canvas-area">
+        <ClientOnly>
+          <GardenCanvas :garden-id="selected?.id" :memorials="records" :focus-id="focusId" :can-create="status === 'success' && !loadError" :editing="creationOpen" @select="selectGarden" @create="createAt" />
+          <template #fallback><div class="garden-fallback"><AppState kind="loading" :title="t('garden.loading')" :description="t('garden.loadingHint')" /></div></template>
+        </ClientOnly>
+      </div>
 
-      <div class="garden-hud">
+      <div v-if="selected" class="garden-hud">
         <UPopover v-model:open="gardenMenuOpen" :content="{ side: 'bottom', align: 'start', sideOffset: 12 }" :ui="{ content: 'bg-[#fffcf5] rounded-2xl ring-1 ring-[#d8d5c3] shadow-xl' }">
           <button type="button" class="garden-control garden-switch" :aria-label="t('garden.switch')" data-testid="garden-switch"><UIcon name="i-lucide-trees" aria-hidden="true" /><span class="garden-switch-label">{{ t('garden.switch') }}</span><UIcon name="i-lucide-chevron-down" class="garden-switch-chevron" aria-hidden="true" /></button>
           <template #content>
             <div class="garden-menu">
               <nav :aria-label="t('garden.choose')">
-                <button v-for="garden in demoGardens" :key="garden.id" type="button" :aria-pressed="selected.id === garden.id" :data-testid="`garden-${garden.id}`" @click="selectGarden(garden.id)"><span>{{ t(`garden.names.${garden.id}`) }}</span><UIcon :name="selected.id === garden.id ? 'i-lucide-check' : 'i-lucide-arrow-up-right'" aria-hidden="true" /></button>
+                <button v-for="garden in demoGardens" :key="garden.id" type="button" :aria-pressed="selected?.id === garden.id" :data-testid="`garden-${garden.id}`" @click="selectGarden(garden.id)"><span>{{ t(`garden.names.${garden.id}`) }}</span><UIcon :name="selected?.id === garden.id ? 'i-lucide-check' : 'i-lucide-arrow-up-right'" aria-hidden="true" /></button>
               </nav>
               <div class="garden-menu-links">
-                <NuxtLink :to="localePath('/account')" data-testid="garden-account"><UIcon name="i-lucide-user-round" aria-hidden="true" />{{ t('creation.myPlaces') }}</NuxtLink>
-                <NuxtLink :to="localePath('/')" data-testid="garden-home"><UIcon name="i-lucide-house" aria-hidden="true" />{{ t('garden.home') }}</NuxtLink>
-                <NuxtLink :to="switchLocalePath(locale === 'ru' ? 'en' : 'ru')" class="language-link" :aria-label="t('nav.language')" :lang="locale === 'ru' ? 'en' : 'ru'">{{ locale === 'ru' ? 'English' : 'Русский' }}</NuxtLink>
+                <NuxtLink :to="localePath('/gardens')" data-testid="garden-overview" @click="gardenMenuOpen = false"><UIcon name="i-lucide-layout-grid" aria-hidden="true" />{{ t('garden.back') }}</NuxtLink>
               </div>
             </div>
           </template>
@@ -124,8 +125,8 @@ watch(() => selected.value?.id, async () => {
         </nav>
       </div>
 
-      <UAlert v-if="loadError" class="garden-load-error" color="error" :title="t('creation.errors.map')" role="alert"><template #actions><UButton variant="outline" @click="reload()">{{ t('states.retry') }}</UButton></template></UAlert>
-      <UModal v-if="requestedPlace" :open="creationOpen" :title="t('creation.title')" :description="t('creation.inlineIntro')" :content="{ onCloseAutoFocus: restoreCreationFocus }" :ui="{ content: 'bg-[#fffcf5] rounded-[28px] max-w-xl ring-1 ring-[#d8d5c3]', body: 'p-5 sm:p-7', header: 'p-5 sm:p-7' }" @update:open="closeCreation">
+      <UAlert v-if="selected && loadError" class="garden-load-error" color="error" :title="t('creation.errors.map')" role="alert"><template #actions><UButton variant="outline" @click="reload()">{{ t('states.retry') }}</UButton></template></UAlert>
+      <UModal v-if="selected && requestedPlace" :open="creationOpen" :title="t('creation.title')" :description="t('creation.inlineIntro')" :content="{ onCloseAutoFocus: restoreCreationFocus }" :ui="{ content: 'bg-[#fffcf5] rounded-[28px] max-w-xl ring-1 ring-[#d8d5c3]', body: 'p-5 sm:p-7', header: 'p-5 sm:p-7' }" @update:open="closeCreation">
         <template #close><UButton icon="i-lucide-x" variant="ghost" class="absolute top-3 end-3 min-h-11 min-w-11" :aria-label="t('creation.close')" /></template>
         <template #body><MemorialCreationForm :key="`${selected.id}-${requestedPlace}`" :garden-id="selected.id" :place="requestedPlace" @saved="created" @unavailable="reload()" /></template>
       </UModal>
@@ -134,8 +135,9 @@ watch(() => selected.value?.id, async () => {
 </template>
 
 <style scoped>
-.gardens-page { position: relative; width: 100%; height: 100dvh; overflow: clip; background: #193c37; }
-.garden-stage { position: relative; width: 100%; height: 100%; }
+.gardens-page { position: relative; display: flex; flex-direction: column; width: 100%; height: 100dvh; overflow: clip; background: var(--garden-cream); }
+.garden-stage { position: relative; flex: 1; min-height: 0; margin: 0 20px calc(20px + env(safe-area-inset-bottom)); border-radius: 28px; overflow: clip; background: #193c37; box-shadow: 0 0 0 1px #244b3b1a; }
+.garden-canvas-area { position: absolute; inset: 0; }
 .garden-hud { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .garden-control { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-width: 48px; min-height: 48px; padding: 10px 18px; border: 1px solid #e4dcc33d; border-radius: 18px; color: #f8f3e8; background: #173d34ed; box-shadow: 0 8px 28px #0c282b35; backdrop-filter: blur(16px); pointer-events: auto; cursor: pointer; }
 .garden-control:hover { background: #285346; }
@@ -160,6 +162,7 @@ watch(() => selected.value?.id, async () => {
 .garden-load-error { position: absolute; z-index: 4; top: calc(86px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(460px, calc(100% - 160px)); }
 .garden-fallback { position: absolute; inset: 0; display: grid; place-items: center; background: var(--garden-cream); }
 @media (max-width: 600px) {
+  .garden-stage { margin: 0 8px calc(8px + env(safe-area-inset-bottom)); border-radius: 22px; }
   .garden-switch { top: calc(12px + env(safe-area-inset-top)); left: calc(12px + env(safe-area-inset-left)); width: 48px; padding: 0; }
   .garden-switch-label, .garden-switch-chevron { display: none; }
   .garden-title { top: calc(12px + env(safe-area-inset-top)); max-width: calc(100% - 152px); min-height: 48px; display: grid; place-items: center; padding: 10px 20px; font-size: 23px; }

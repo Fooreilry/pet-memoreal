@@ -67,7 +67,7 @@ async function signOut() {
     const result = await auth.signOut()
     if (result.error) throw new Error('Sign out failed')
     clearNuxtData()
-    await navigateTo(localePath('/login'))
+    await navigateTo(localePath('/'), { replace: true })
   } catch {
     failed.value = true
   } finally {

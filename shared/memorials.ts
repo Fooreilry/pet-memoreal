@@ -9,6 +9,7 @@ export function memorialSchema(message: (key: string) => string = key => key) {
     born: year(),
     died: year(),
     story: z.string().trim().min(1, message('story')).max(5000, message('storyLimit')),
+    isAnonymous: z.boolean().default(false),
     gardenId: z.enum(gardenIds, { error: message('garden') }),
     place: z.number({ error: message('place') }).int(message('place')).optional(),
     requestId: z.uuid()
@@ -27,5 +28,6 @@ export type PublicMemorial = {
   born: number
   died: number
   story: string
+  creatorName: string | null
   species: 'pet'
 }

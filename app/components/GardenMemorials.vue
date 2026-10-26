@@ -3,6 +3,7 @@ import { getMemorialLayout } from '../data/demoMemorials'
 import type { GardenMemorial } from '../data/demoMemorials'
 import type { GardenId } from '../data/demoGardens'
 import type { PublicMemorial } from '../../shared/memorials'
+import { getMonumentKind } from '../data/monuments'
 
 const props = defineProps<{ gardenId: GardenId, width: number, height: number, camera: { zoom: number, x: number, y: number }, interacting: boolean, saved: PublicMemorial[], focusId?: string, canCreate: boolean }>()
 const emit = defineEmits<{ modal: [open: boolean], reveal: [x: number, y: number], create: [place: number] }>()
@@ -27,7 +28,14 @@ function revealFocused(event: FocusEvent, x: number, y: number) {
 
 function restoreFocus(event: Event) {
   event.preventDefault()
-  if (trigger?.isConnected) trigger.focus({ preventScroll: true })
+  const id = selected.value?.id
+  nextTick(() => {
+    const active = document.activeElement
+    // An action taken in the header while the dialog is closing must keep its focus.
+    if (active && active !== document.body && !active.closest('.memorial-story-card')) return
+    const target = id ? document.getElementById(`stone-${id}`) : trigger
+    if (target?.isConnected) target.focus({ preventScroll: true })
+  })
 }
 
 function name(memorial: GardenMemorial) { return memorial.source === 'saved' ? memorial.name : t(`garden.pets.${memorial.profile}`) }
@@ -53,12 +61,13 @@ watch([() => props.focusId, layout], async () => {
 <template>
   <div class="memorial-controls" role="group" :aria-label="t('memorial.places')" :style="{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }">
     <div v-for="place in layout.places" :key="place.place" class="memorial-position" :style="{ left: `${place.x / width * 100}%`, top: `${(place.y + 5) / height * 100}%`, width: `${90 / width * 100}%`, height: `${100 / height * 100}%` }">
-      <UTooltip v-if="place.memorial" :delay-duration="180" :disabled="open || interacting" :content="{ side: 'top', collisionPadding: 16 }" :ui="{ content: 'h-auto max-w-72 p-0 bg-[#fffcf5] text-[#244b3b] rounded-2xl shadow-xl ring-1 ring-[#dcd9c7]' }">
+      <UTooltip v-if="place.memorial" :delay-duration="180" disable-hoverable-content :disabled="open || interacting" :content="{ side: 'top', collisionPadding: 16 }" :ui="{ content: 'memorial-preview pointer-events-none h-auto max-w-72 p-0 bg-[#fffcf5] text-[#244b3b] rounded-2xl shadow-xl ring-1 ring-[#dcd9c7]' }">
         <button
           :id="`stone-${place.memorial.id}`"
           type="button"
           class="memorial-hit"
           :data-testid="`memorial-${place.memorial.id}`"
+          :data-monument-kind="getMonumentKind(gardenId, place.place)"
           :aria-label="t('memorial.open', { name: name(place.memorial), years: years(place.memorial), place: place.memorial.place })"
           aria-haspopup="dialog"
           @focus="revealFocused($event, place.x / width, (place.y + 5) / height)"
@@ -108,6 +117,7 @@ watch([() => props.focusId, layout], async () => {
     <template #body>
       <div class="memorial-details">
         <p class="memorial-location"><UIcon name="i-lucide-sprout" aria-hidden="true" />{{ t('memorial.location', { garden: t(`garden.names.${selected.gardenId}`), place: selected.place }) }}</p>
+        <p v-if="selected.source === 'saved'" class="memorial-creator" data-testid="memorial-creator"><UIcon :name="selected.creatorName ? 'i-lucide-user-round' : 'i-lucide-user-round-minus'" aria-hidden="true" /><span>{{ t('memorial.creator') }} <strong>{{ selected.creatorName ?? t('memorial.anonymous') }}</strong></span></p>
         <blockquote v-if="selected.source === 'demo'"><UIcon name="i-lucide-heart" aria-hidden="true" /><p>{{ quote(selected) }}</p></blockquote>
         <section class="memorial-story"><h3>{{ t('memorial.story') }}</h3><p class="whitespace-pre-line">{{ selected.source === 'saved' ? selected.story : t(`memorial.profiles.${selected.profile}.story`) }}</p></section>
         <section v-if="selected.source === 'demo'" class="memorial-favorite"><UIcon name="i-lucide-sun" aria-hidden="true" /><div><h3>{{ t('memorial.favorite') }}</h3><p>{{ t(`memorial.profiles.${selected.profile}.favorite`) }}</p></div></section>
@@ -145,6 +155,9 @@ watch([() => props.focusId, layout], async () => {
 .memorial-details { display: grid; gap: 24px; line-height: 1.8; color: #4c5e55; overflow-wrap: anywhere; }
 .memorial-location { display: flex; align-items: center; justify-content: center; gap: 8px; text-align: center; font-size: 12px; color: #62715d; }
 .memorial-location > * { flex-shrink: 0; width: 16px; height: 16px; }
+.memorial-creator { display: flex; align-items: start; gap: 10px; padding: 12px 16px; border: 1px solid #e7dfca; border-radius: 14px; background: #f8f3e8; font-size: 13px; }
+.memorial-creator > .iconify { flex-shrink: 0; width: 18px; height: 18px; margin-top: 3px; color: #62715d; }
+.memorial-creator strong { font-weight: 500; color: #244b3b; }
 blockquote { padding: 0 12px 24px; border-bottom: 1px solid #e6deca; font: italic 24px/1.5 Georgia, serif; color: #315d46; text-align: center; }
 blockquote > .iconify { display: block; width: 18px; height: 18px; margin: 0 auto 12px; color: #a67b3c; }
 h3 { font: 23px/1.3 Georgia, serif; color: #213e36; margin-bottom: 10px; }
@@ -164,6 +177,8 @@ h3 { font: 23px/1.3 Georgia, serif; color: #213e36; margin-bottom: 10px; }
 </style>
 
 <style>
+/* Previews are descriptive only; they must not block neighboring stones. */
+[data-reka-popper-content-wrapper]:has(.memorial-preview) { pointer-events: none; }
 /* The dialog is portalled; scope its surface styles by the component class. */
 .memorial-story-card [data-slot='header'] { position: relative; flex-shrink: 0; text-align: center; border: 0; background: linear-gradient(#163b36de, #132f2af2), url('/images/34a7d373-ee89-4a01-a2e3-7fc7b31039c3.jpg') center 45% / cover; }
 .memorial-story-card [data-slot='title'] { color: #fff8e8; }

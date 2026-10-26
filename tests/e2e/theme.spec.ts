@@ -66,7 +66,7 @@ for (const locale of ['ru', 'en']) {
     await create.focus()
     await expect(create).toBeFocused()
     await page.keyboard.press('Enter')
-    await expect(page).toHaveURL(new RegExp(`/${locale}/gardens$`))
+    await expect(page).toHaveURL(new RegExp(`/${locale}/register$`))
     await page.goto(`/${locale}`)
 
     await page.locator('.auth-header-login').click()

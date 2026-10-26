@@ -2,6 +2,12 @@ import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
 async function chooseGarden(page: Page, id: string) {
+  await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
+  const tile = page.getByTestId(`garden-choice-${id}`)
+  if (await tile.isVisible()) {
+    await tile.click()
+    return
+  }
   await page.getByTestId('garden-switch').click()
   await page.getByTestId(`garden-${id}`).click()
 }
@@ -290,7 +296,7 @@ test('butterflies, drifting leaves and grass stay calm when paused or motion is 
   const scene = page.locator('.canvas-wrapper')
   const canvas = page.locator('canvas')
   const effects = [
-    { garden: 'meadow', description: 'Butterflies above the wildflowers' },
+    { garden: 'meadow', description: 'Butterflies and bees above the wildflowers' },
     { garden: 'grove', description: 'Leaves drifting through the grove' },
     { garden: 'hill', description: 'A gentle breeze in the grass' }
   ]
@@ -311,8 +317,10 @@ test('butterflies, drifting leaves and grass stay calm when paused or motion is 
 
     // New decoration follows the same camera and never intercepts a stone tap.
     await page.getByTestId('garden-zoom-in').click()
-    const cameraBeforePress = await scene.evaluate(element => [element.dataset.cameraX, element.dataset.cameraY])
     const stone = page.getByTestId(`memorial-${garden}-1`)
+    // Reveal the stone below the inset HUD before testing pointer stability.
+    await stone.focus()
+    const cameraBeforePress = await scene.evaluate(element => [element.dataset.cameraX, element.dataset.cameraY])
     if (isMobile) await stone.tap()
     else await stone.click()
     await expect(page.getByRole('dialog')).toContainText('Place 1')
@@ -379,7 +387,9 @@ for (const locale of ['ru', 'en']) {
     await expect(second).toBeFocused()
     await page.keyboard.press('Space')
     await expect(dialog).toBeVisible()
-    await page.mouse.click(2, 2)
+    const overlay = page.locator('[data-slot="overlay"][data-state="open"]')
+    if (isMobile) await overlay.tap({ position: { x: 2, y: 2 } })
+    else await overlay.click({ position: { x: 2, y: 2 } })
     await expect(dialog).toHaveCount(0)
     expect(errors).toEqual([])
   })
@@ -412,11 +422,10 @@ test('memorial hit targets follow resize and old details disappear on garden nav
 })
 
 for (const locale of ['ru', 'en']) {
-  test(`${locale}: enter from landing, switch all four gardens inside the scene and return home`, async ({ page }, testInfo) => {
+  test(`${locale}: enter the overview, switch all four gardens inside the scene and return home`, async ({ page }, testInfo) => {
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
-    await page.goto(`/${locale}`)
-    await page.locator('.hero-actions').getByRole('link', { name: locale === 'ru' ? 'Создать место памяти' : 'Create a memorial', exact: true }).click()
+    await page.goto(`/${locale}/gardens`)
     await expect(page).toHaveURL(new RegExp(`/${locale}/gardens$`))
     const canvas = page.locator('canvas')
     await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
@@ -440,10 +449,9 @@ for (const locale of ['ru', 'en']) {
 
 test('keyboard selection, direct links, history, locale switch and responsive canvas', async ({ page }) => {
   await page.goto('/ru/gardens?garden=invalid')
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Луг')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Четыре тихих сада')
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
-  await page.getByTestId('garden-switch').click()
-  await page.getByTestId('garden-lake').focus()
+  await page.getByTestId('garden-choice-lake').focus()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Озеро')
   await page.reload()
@@ -476,10 +484,9 @@ test('leaving and reopening the page keeps one functioning canvas', async ({ pag
   for (let i = 0; i < 3; i++) {
     await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
     await expect(page.locator('canvas')).toHaveCount(1)
-    await page.getByTestId('garden-switch').click()
     await page.getByTestId('garden-home').click()
     await expect(page.locator('canvas')).toHaveCount(0)
-    await page.locator('.hero-actions').getByRole('link', { name: 'Create a memorial', exact: true }).click()
+    await page.goBack()
   }
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
   await chooseGarden(page, 'grove')

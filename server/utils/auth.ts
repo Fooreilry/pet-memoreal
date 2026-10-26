@@ -6,6 +6,7 @@ import { getDatabase } from '../db/client'
 import * as schema from '../db/schema'
 import { getAuthConfig } from './auth-config'
 import { profileFields } from '../../shared/profile'
+import { roleFields } from '../../shared/roles'
 import { createMailTransport } from './mail'
 import { createDatabaseRateLimitStorage } from './rate-limit'
 
@@ -33,7 +34,7 @@ function createAuth() {
     trustedOrigins: [new URL(config.BETTER_AUTH_URL).origin],
     advanced: { ipAddress: { ipAddressHeaders: ['x-auth-client-ip'] } },
     database: drizzleAdapter(db, { provider: 'pg', schema, transaction: true }),
-    user: { additionalFields: { ...profileFields, role: { type: 'string', defaultValue: 'user', input: false } } },
+    user: { additionalFields: { ...profileFields, ...roleFields } },
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: true,

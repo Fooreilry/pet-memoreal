@@ -4,7 +4,7 @@ import config from './playwright.config'
 // These public UI scenarios do not use the database or email service.
 export default defineConfig({
   ...config,
-  testMatch: ['landing.spec.ts', 'theme.spec.ts', 'gardens.spec.ts', 'garden-shell.spec.ts'],
+  testMatch: ['landing.spec.ts', 'theme.spec.ts', 'gardens.spec.ts', 'garden-shell.spec.ts', 'garden-selection.spec.ts', 'monuments.spec.ts', 'hill.spec.ts', 'grove.spec.ts', 'lake.spec.ts', 'meadow.spec.ts'],
   globalSetup: undefined,
   webServer: {
     command: 'node .output/server/index.mjs',

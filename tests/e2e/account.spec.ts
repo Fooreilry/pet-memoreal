@@ -3,10 +3,11 @@ import pg from 'pg'
 import { hashPassword } from 'better-auth/crypto'
 import { expect, test as base } from '@playwright/test'
 import { getDatabaseOptions } from '../../server/db/config'
+import { signInFixture } from './helpers/sign-in'
 
 const origin = 'http://127.0.0.1:4173'
 const test = base.extend<{ member: { id: string, email: string } }>({
-  member: async ({ page, baseURL }, use) => {
+  member: [async ({ page, baseURL }, use) => {
     const database = process.env.E2E_DATABASE
     if (baseURL !== origin || !database || !/^petmemoreal_e2e_\d+_[a-f0-9]{8}$/.test(database)) throw new Error('Account fixtures require the temporary E2E database')
     const pool = new pg.Pool({ ...getDatabaseOptions(), database })
@@ -16,14 +17,14 @@ const test = base.extend<{ member: { id: string, email: string } }>({
     try {
       await pool.query('INSERT INTO auth_user (id, name, email, email_verified) VALUES ($1, $2, $3, true)', [id, 'Александра', email])
       await pool.query('INSERT INTO auth_account (id, account_id, provider_id, user_id, password) VALUES ($1, $2, $3, $4, $5)', [randomUUID(), id, 'credential', id, await hashPassword(password)])
-      const response = await page.request.post('/api/auth/sign-in/email', { headers: { origin }, data: { email, password } })
+      const response = await signInFixture(page.request, { origin, email, password })
       expect(response.ok()).toBe(true)
       await use({ id, email })
     } finally {
       await pool.query('DELETE FROM auth_user WHERE id = $1', [id])
       await pool.end()
     }
-  }
+  }, { timeout: 90_000 }]
 })
 
 for (const locale of ['ru', 'en']) {
@@ -76,6 +77,7 @@ for (const locale of ['ru', 'en']) {
     await expect(surname).toHaveValue('Иванова')
     await surname.fill('')
     await save.click()
+    await expect(dialog).toHaveCount(0)
     await page.reload()
     await expect(page.getByTestId('profile-surname')).toHaveText(ru ? 'Не указана' : 'Not provided')
 
@@ -89,7 +91,8 @@ for (const locale of ['ru', 'en']) {
     expect((await page.request.get('/api/me')).status()).toBe(200)
     await page.unroute('**/api/auth/sign-out')
     await exit.click()
-    await expect(page).toHaveURL(new RegExp(`/${locale}/login$`))
+    await expect(page).toHaveURL(new RegExp(`/${locale}$`))
+    await expect(page.locator('.landing')).toBeVisible()
     expect((await page.request.get('/api/me')).status()).toBe(401)
   })
 
@@ -99,10 +102,12 @@ for (const locale of ['ru', 'en']) {
     expect(created.status()).toBe(201)
     const memorial = await created.json()
     expect(member.id).toBeTruthy()
-    await page.goto(`/${locale}`)
+    await page.goto(`/${locale}/gardens`)
     await page.route('**/api/memorials/mine', route => route.fulfill({ status: 503, json: { statusMessage: 'Unavailable' } }))
     // Client navigation allows the failed API response to be controlled without mocking SSR.
-    await page.locator('.invitation-actions a').last().click()
+    if (testInfo.project.name === 'mobile') await page.getByTestId('garden-account-menu').tap()
+    else await page.getByTestId('garden-account-menu').click()
+    await page.getByRole('menuitem', { name: ru ? 'Профиль' : 'Profile', exact: true }).click()
     const section = page.locator('.account-memorials')
     await expect(section.getByRole('alert')).toBeVisible()
     await expect(page.getByTestId('profile-name')).toHaveText('Александра')

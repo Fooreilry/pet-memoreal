@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { bigint, boolean, check, index, integer, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core'
+import { userRoles } from '../../shared/roles'
 
 export const gardens = pgTable('gardens', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -14,10 +15,10 @@ export const user = pgTable('auth_user', {
   email: text('email').notNull().unique(),
   emailVerified: boolean('email_verified').default(false).notNull(),
   image: text('image'),
-  role: text('role').default('user').notNull(),
+  role: text('role', { enum: userRoles }).default('user').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
-})
+}, table => [check('auth_user_role_check', sql`${table.role} in ('user', 'admin')`)])
 
 export const session = pgTable('auth_session', {
   id: text('id').primaryKey(),
@@ -71,6 +72,7 @@ export const memorials = pgTable('memorials', {
   born: integer('born').notNull(),
   died: integer('died').notNull(),
   story: text('story').notNull(),
+  isAnonymous: boolean('is_anonymous').default(false).notNull(),
   requestId: uuid('request_id').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
 }, table => [

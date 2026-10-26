@@ -2,14 +2,23 @@
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: process.env.NODE_ENV === 'development' },
-  nitro: { vercel: { functions: { runtime: 'nodejs24.x', maxDuration: 30 } } },
+  nitro: {
+    vercel: { functions: { runtime: 'nodejs24.x', maxDuration: 30 } },
+    prerender: { crawlLinks: false }
+  },
   devServer: { host: '127.0.0.1', port: 3000 },
   modules: ['@nuxt/ui', '@nuxtjs/i18n', '@nuxt/eslint'],
   css: ['~/assets/css/main.css'],
   colorMode: { preference: 'light', fallback: 'light' },
   routeRules: {
-    '/ru': { headers: { 'cache-control': 'private, no-store' } },
-    '/en': { headers: { 'cache-control': 'private, no-store' } },
+    '/ru': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
+    '/en': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
+    '/ru/login': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
+    '/en/login': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
+    '/ru/register': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
+    '/en/register': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
+    '/ru/gardens': { headers: { 'cache-control': 'private, no-store' } },
+    '/en/gardens': { headers: { 'cache-control': 'private, no-store' } },
     '/api/auth/**': { headers: { 'cache-control': 'no-store' } },
     '/api/me': { headers: { 'cache-control': 'no-store' } },
     '/api/memorials/**': { headers: { 'cache-control': 'no-store' } },

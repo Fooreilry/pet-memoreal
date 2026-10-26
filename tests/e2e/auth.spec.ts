@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import type { APIRequestContext, Page } from '@playwright/test'
+import { signInFixture, waitForSignInRetry } from './helpers/sign-in'
 
 const password = 'Garden-memory-2026!'
 const newPassword = 'Garden-new-memory-2026!'
@@ -50,7 +51,14 @@ async function login(page: Page, copy: typeof copies[number], email: string, val
   await page.goto(`/${copy.locale}/login`)
   await page.getByLabel('Email', { exact: true }).fill(email)
   await page.getByLabel(copy.password, { exact: true }).fill(value)
-  await page.getByRole('button', { name: copy.login, exact: true }).click()
+  const submit = async () => {
+    const [response] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === '/api/auth/sign-in/email' && response.request().method() === 'POST'),
+      page.getByRole('button', { name: copy.login, exact: true }).click()
+    ])
+    return response
+  }
+  if (await waitForSignInRetry(await submit())) await submit()
 }
 
 for (const copy of copies) {
@@ -103,56 +111,55 @@ for (const copy of copies) {
     const cookies = await page.context().cookies()
     expect(cookies.find(cookie => cookie.name.includes('session_token'))?.httpOnly).toBe(true)
     await page.locator('.account-header .brand').click()
-    await expect(page.getByTestId('landing-sign-out')).toBeEnabled()
-    await expect(page.locator('.auth-header-login')).toHaveCount(0)
-    await page.locator('.invitation-actions a').last().click()
+    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/gardens$`))
+    await expect(page.locator('.landing')).toHaveCount(0)
+    if (isMobile) await page.getByTestId('garden-account-menu').tap()
+    else await page.getByTestId('garden-account-menu').click()
+    await page.getByRole('menuitem', { name: copy.locale === 'ru' ? 'Профиль' : 'Profile', exact: true }).click()
     await expect(page).toHaveURL(new RegExp(`/${copy.locale}/account$`))
     await page.getByRole('button', { name: copy.logout, exact: true }).click()
-    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/login$`))
+    await expect(page).toHaveURL(new RegExp(`/${copy.locale}$`))
+    await expect(page.locator('.landing')).toBeVisible()
     expect((await page.request.get('/api/me')).status()).toBe(401)
 
     await login(page, copy, email)
     await expect(page).toHaveURL(new RegExp(`/${copy.locale}/account$`))
     const home = await page.goto(`/${copy.locale}`)
-    expect(home?.headers()['cache-control']).toContain('no-store')
-    // The first server-rendered response must already reflect the real cookie.
-    expect(await home!.text()).toContain('data-testid="landing-sign-out"')
-    const header = page.locator('.site-header')
-    await expect(header.locator('.auth-header-login')).toHaveCount(0)
-    await expect(header.locator('.header-cta')).toHaveCount(0)
-    await expect(page.locator('.invitation-actions a').last()).toHaveAttribute('href', `/${copy.locale}/account`)
+    expect(home?.status()).toBe(200)
+    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/gardens$`))
+    await expect(page.locator('.landing')).toHaveCount(0)
     await page.reload()
-    const exit = page.getByTestId('landing-sign-out')
+    await expect(page.getByTestId('garden-choices')).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath('authenticated-home.png'), animations: 'disabled' })
+    if (isMobile) await page.getByTestId('garden-account-menu').tap()
+    else await page.getByTestId('garden-account-menu').click()
+    await page.getByRole('menuitem', { name: copy.locale === 'ru' ? 'Профиль' : 'Profile', exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/account$`))
+    await expect(page.getByTestId('profile-name')).toHaveText('Тест')
+    const exit = page.getByRole('button', { name: copy.logout, exact: true })
     await expect(exit).toBeEnabled()
     await expect(exit).toHaveAccessibleName(copy.logout)
     const icon = (await exit.boundingBox())!
     expect(icon.width).toBeGreaterThanOrEqual(44)
     expect(icon.height).toBeGreaterThanOrEqual(44)
-    if (isMobile) {
-      await header.locator('.language-link').focus()
-      await page.keyboard.press('Tab')
-      await expect(exit).toBeFocused()
-    } else await exit.hover()
-    const tooltip = page.locator('[data-slot="content"] [data-slot="text"]')
-    await expect(tooltip).toHaveText(copy.logout)
-    await expect(tooltip).toBeVisible()
-    await expect(exit).toHaveAccessibleDescription(copy.logout)
-    await page.screenshot({ path: testInfo.outputPath('landing-signed-in.png'), animations: 'disabled' })
-
     await page.route('**/api/auth/sign-out', route => route.fulfill({ status: 503, json: { code: 'UNAVAILABLE', message: 'Unavailable' } }))
     if (isMobile) await exit.tap()
     else await exit.click()
-    await expect(page.getByText(copy.locale === 'ru' ? 'Не удалось выполнить запрос. Попробуйте ещё раз немного позже.' : 'We could not complete your request. Please try again shortly.', { exact: true })).toBeVisible()
+    await expect(page.getByRole('alert')).toContainText(copy.locale === 'ru' ? 'Не удалось выполнить запрос. Попробуйте ещё раз немного позже.' : 'We could not complete your request. Please try again shortly.')
     await expect(exit).toBeEnabled()
+    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/account$`))
     expect((await page.request.get('/api/me')).status()).toBe(200)
     await page.unroute('**/api/auth/sign-out')
     if (isMobile) await exit.tap()
     else await exit.click()
     await expect(exit).toHaveCount(0)
     await expect(page).toHaveURL(new RegExp(`/${copy.locale}$`))
+    await expect(page.locator('.landing')).toBeVisible()
+    expect((await page.request.get('/api/me')).status()).toBe(401)
+    await page.goto(`/${copy.locale}`)
+    const header = page.locator('.site-header')
     await expect(header.locator('.auth-header-login')).toBeVisible()
     await expect(header.locator('.header-cta')).toHaveAttribute('href', `/${copy.locale}/register`)
-    expect((await page.request.get('/api/me')).status()).toBe(401)
     await page.reload()
     await expect(exit).toHaveCount(0)
     await expect(header.locator('.auth-header-login')).toBeVisible()
@@ -160,7 +167,7 @@ for (const copy of copies) {
     // Keep a second real session open; resetting a password must revoke it.
     const other = await browser.newContext()
     try {
-      const signedIn = await other.request.post('http://127.0.0.1:4173/api/auth/sign-in/email', { data: { email, password }, headers: { origin: 'http://127.0.0.1:4173' } })
+      const signedIn = await signInFixture(other.request, { origin: 'http://127.0.0.1:4173', email, password })
       expect(signedIn.ok()).toBe(true)
       await page.goto(`/${copy.locale}/forgot-password`)
       await page.getByLabel('Email', { exact: true }).fill(email)

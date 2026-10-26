@@ -16,12 +16,11 @@
 .landing .brand-mark { background: #f8f3e810; border-color: #f8f3e840; border-radius: 50%; width: 36px; height: 36px; }
 .landing .desktop-nav { gap: 24px; font-size: 13px; }
 .landing .header-actions { gap: 16px; }
+.landing .landing-button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 12px 17px; border-radius: 999px; font-weight: 600; text-decoration: none; }
+.landing .landing-button .iconify { width: 18px; height: 18px; flex-shrink: 0; }
 .landing .header-cta { color: #f8f3e8; background: #f8f3e80c; border: 1px solid #f8f3e85c; box-shadow: none; min-height: 44px; }
 .landing .header-cta:hover { background: #f8f3e8; color: #213d36; }
 .landing .auth-header-login { display: inline-flex; align-items: center; min-height: 44px; }
-.landing .header-user { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 10px; border: 1px solid #f8f3e85c; border-radius: 50%; color: #f8f3e8; background: #f8f3e810; cursor: pointer; }
-.landing .header-user:hover { color: #213d36; background: #f8f3e8; }
-.landing .header-user:focus-visible { outline: 2px solid #f7cf87; outline-offset: 4px; }
 .landing .landing-header a:focus-visible, .landing .hero-section :focus-visible { outline-color: #f7cf87; }
 .landing .hero-section { position: relative; isolation: isolate; overflow: hidden; background: #142630; }
 .landing .hero-background { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; object-fit: cover; object-position: center; }
@@ -34,7 +33,7 @@
 .landing .hero h1 em { color: #f2c985; font-weight: 400; }
 .landing .hero-description { max-width: 460px; font-size: 18px; line-height: 1.8; margin-top: 26px; color: #eceee1; }
 .landing .hero-actions { gap: 12px; margin-top: 30px; }
-.landing .hero-actions > a { min-height: 54px; font-size: 15px; padding: 15px 24px; transition: background .2s, box-shadow .2s; }
+.landing .hero-actions > a { min-height: 54px; font-size: 15px; padding: 15px 24px; }
 .landing .hero-actions > a:first-child { background: #f2c179; color: #182f2c; box-shadow: 0 6px 28px #efb35b20; }
 .landing .hero-actions > a:first-child:hover { background: #f8d79f; box-shadow: 0 8px 34px #efb35b38; }
 .landing .hero-actions > .text-link { border: 1px solid #e5e8d56b; border-radius: 999px; background: #142d30b3; color: #fff9ed; backdrop-filter: blur(8px); }
@@ -42,19 +41,9 @@
 .landing .launch-note { margin-top: 18px; color: #d6dfcf; font-size: 12px; gap: 8px; line-height: 1.7; }
 .landing .launch-note .iconify { width: 16px; height: 16px; flex-shrink: 0; color: #e6c58b; }
 .landing .hero-bottom { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding-block: 10px 18px; color: #e0e4d8; border-top: 1px solid #f8f3e826; }
-.landing .hero-scroll, .landing .motion-toggle { display: inline-flex; align-items: center; gap: 10px; font-size: 12px; min-height: 44px; }
+.landing .hero-scroll { display: inline-flex; align-items: center; gap: 10px; font-size: 12px; min-height: 44px; }
 .landing .hero-scroll .iconify { width: 16px; height: 16px; color: #f2c985; }
 .landing .hero-caption { font: italic 18px var(--font-display); color: #e7d8bb; }
-.landing .motion-toggle { cursor: pointer; padding-inline: 14px; border: 1px solid #f8f3e833; border-radius: 24px; }
-.landing .motion-toggle:hover { background: #f8f3e814; }
-.landing .fireflies { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
-.landing .fireflies span { position: absolute; left: calc(41% + var(--i) * 4.3%); top: calc(17% + var(--i) * 5%); width: 4px; height: 4px; border-radius: 50%; background: #f8da96; box-shadow: 0 0 12px 3px #f6ca685e; animation: firefly-drift calc(5s + var(--i) * .35s) ease-in-out infinite alternate; animation-delay: calc(var(--i) * -.65s); }
-.landing .fireflies span:nth-child(even) { top: calc(80% - var(--i) * 5%); }
-.landing.motion-paused .fireflies span { animation-play-state: paused !important; }
-.landing .promise-strip { background: #eeeadd; border-bottom: 1px solid #dedbce; }
-.landing .promise-strip > div { display: flex; justify-content: space-between; gap: 24px; padding-block: 22px; }
-.landing .promise-strip span { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 13px; color: #435c4d; }
-.landing .promise-strip .iconify { width: 18px; height: 18px; color: #7d693e; flex-shrink: 0; }
 .landing .about-section { grid-template-columns: 1.1fr 1fr; gap: 80px; padding-block: 74px; border-bottom: none; }
 .landing .about-section h2 { font-size: clamp(30px, 2.9vw, 40px); margin-top: 18px; }
 .landing .about-copy { font-size: 16px; line-height: 1.9; }
@@ -84,31 +73,32 @@
 .landing .door-caption { display: flex; gap: 12px; align-items: start; justify-content: space-between; padding: 22px 18px; }
 .landing .door-caption h3 { font: 27px var(--font-display); }
 .landing .door-caption p { font-size: 14px; margin-top: 9px; line-height: 1.7; }
-.landing .door-caption > .iconify { width: 20px; height: 20px; flex-shrink: 0; margin-top: 4px; }
-.landing .garden-door:hover { box-shadow: 0 10px 30px #27463815; border-color: #9da98b; }
 .landing .how-band { background: #eef0e5; border-block: 1px solid #dce0d0; }
-.landing .how-section { padding-block: 64px; border: 0; }
-.landing .steps-grid { margin-top: 32px; gap: 30px; }
-.landing .step-card { padding: 0 24px 0 0; background: transparent; border: 0; border-right: 1px solid #d0d7c3; border-radius: 0; }
-.landing .step-card:last-child { padding-right: 0; border-right: 0; }
-.landing .step-card:nth-child(2), .landing .step-card:nth-child(3) { background: transparent; }
-.landing .step-top { margin-bottom: 18px; }
-.landing .step-top > span { font-size: 30px; color: #6a8065; }
-.landing .step-top > .iconify { width: 24px; height: 24px; }
-.landing .step-card h3 { font-size: 24px; margin-bottom: 10px; }
-.landing .step-card p { font-size: 15px; line-height: 1.85; }
-.landing .values-section { position: relative; overflow: hidden; background: radial-gradient(ellipse at 100% 0%, #47635155, transparent 60%), #213e36; color: #e4e8db; --ui-text-highlighted: #f8f3e8; padding-block: 58px; }
-.landing .values-section .shell { display: grid; grid-template-columns: .9fr 2fr; gap: 60px; align-items: start; }
-.landing .values-section h2 { font-size: 34px; margin-top: 16px; }
-.landing .values-section .eyebrow, .landing .values-grid article > .iconify { color: #f2c985; }
-.landing .values-grid { gap: 28px; margin-top: 0; }
-.landing .values-grid h3 { font-size: 22px; line-height: 1.3; }
-.landing .values-grid p { font-size: 14px; line-height: 1.85; }
+.landing .how-section { display: grid; grid-template-columns: .95fr 1fr; align-items: start; gap: 100px; padding-block: 88px; border: 0; }
+.landing .journey-intro h2 { max-width: 390px; }
+.landing .journey-note { display: flex; align-items: start; gap: 16px; max-width: 355px; margin-top: 38px; padding-top: 24px; border-top: 1px solid #cbd4bf; }
+.landing .journey-note > .iconify { width: 24px; height: 24px; flex-shrink: 0; margin-top: 3px; color: #6b8261; }
+.landing .journey-note p { font: italic 21px/1.65 var(--font-display); color: #62785d; }
+.landing .journey-list { list-style: none; margin: 0; padding: 0; }
+.landing .journey-list li { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 24px; padding-bottom: 40px; }
+.landing .journey-list li:last-child { padding-bottom: 0; }
+.landing .journey-list li:not(:last-child)::after { content: ''; position: absolute; left: 19px; top: 51px; bottom: 13px; width: 1px; background: #c6cfba; }
+.landing .journey-number { font: italic 32px/1.3 var(--font-display); color: #82916d; }
+.landing .journey-list h3 { font: 26px/1.3 var(--font-display); color: #294b3d; margin-top: 3px; }
+.landing .journey-list p { font-size: 15px; line-height: 1.85; margin-top: 12px; max-width: 405px; }
+.landing .values-section { position: relative; overflow: hidden; background: radial-gradient(ellipse at 50% 0%, #6b896233, transparent 65%), #213e36; color: #e4e8db; --ui-text-highlighted: #f8f3e8; padding-block: 80px; }
+.landing .values-message { display: block; max-width: 760px; text-align: center; }
+.landing .values-mark { display: grid; place-items: center; width: 72px; height: 72px; margin: 0 auto 28px; border: 1px solid #d8c99754; border-radius: 50% 50% 40% 40%; color: #dfc596; background: #f8f3e805; }
+.landing .values-mark .iconify { width: 30px; height: 30px; }
+.landing .values-section h2 { font-size: clamp(34px, 3.8vw, 48px); margin-top: 18px; }
+.landing .values-section .eyebrow { justify-content: center; color: #e4c892; }
+.landing .values-description { max-width: 620px; margin: 24px auto 0; font-size: 16px; line-height: 1.95; color: #d2dfcf; }
+.landing .values-aside { max-width: 540px; margin: 30px auto 0; font: italic 23px/1.6 var(--font-display); color: #e6d8ba; }
 .landing .faq-section { padding-block: 64px; grid-template-columns: .85fr 1.2fr; gap: 65px; }
-.landing .faq-list summary { font-size: 16px; padding-block: 23px; line-height: 1.5; }
-.landing .faq-list summary .iconify { transition: transform .2s; }
-.landing .faq-list details p { font-size: 15px; }
-.landing .faq-list details[open] p { animation: memory-appear .25s ease-out; }
+.landing .faq-list article { padding-block: 22px; border-bottom: 1px solid var(--ui-border); }
+.landing .faq-list article:first-child { padding-top: 0; }
+.landing .faq-list h3 { font: 600 16px/1.5 var(--font-sans); color: var(--ui-text-highlighted); }
+.landing .faq-list p { margin-top: 12px; font-size: 15px; line-height: 1.9; }
 .landing .invitation { text-align: center; padding: 52px 32px; margin-bottom: 52px; background: #e9ecdf; border: 1px solid #d9decb; border-radius: 26px; }
 .landing .invitation-sprout { width: 32px; height: 32px; color: #607b5a; margin-bottom: 18px; }
 .landing .invitation .eyebrow { justify-content: center; }
@@ -116,27 +106,30 @@
 .landing .invitation > p:not(.eyebrow) { max-width: 510px; margin: 18px auto 0; font-size: 16px; line-height: 1.8; }
 .landing .invitation-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 24px; margin-top: 24px; }
 .landing .invitation-actions > a { min-height: 48px; font-size: 15px; }
+.landing .invitation-primary { background: #315d46; color: #fff9ed; }
+.landing .invitation-primary:hover { background: #244b3b; }
 .landing .invitation-note { display: block; margin-top: 18px; font-size: 13px; line-height: 1.7; }
-.landing .site-footer { padding-block: 0 32px; border: none; }
+.landing .site-footer { padding-block: 0 88px; border: none; }
 .landing .site-footer p, .landing .site-footer > span { font-size: 12px; line-height: 1.7; }
-@keyframes firefly-drift { from { opacity: .2; transform: translate(0, 8px); } to { opacity: .85; transform: translate(-12px, -18px); } }
-@keyframes memory-appear { from { opacity: .35; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-@media (prefers-reduced-motion: no-preference) {
-  .landing [data-reveal].is-revealed { animation: memory-appear .65s ease-out both; }
-  .landing .hero-copy { animation: memory-appear .8s ease-out both; }
-}
+.landing:focus { outline: none; }
+.landing .back-to-top { position: fixed; z-index: 30; right: max(24px, env(safe-area-inset-right)); bottom: max(24px, env(safe-area-inset-bottom)); display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 48px; padding: 12px 17px; border: 1px solid #e8e1cb66; border-radius: 999px; background: #244b3b; color: #fff9ed; box-shadow: 0 4px 20px #15342624; font-size: 13px; text-decoration: none; }
+.landing .back-to-top .iconify { width: 18px; height: 18px; }
+.landing .back-to-top:hover { background: #315d46; }
+.landing .back-to-top:focus-visible { outline: 3px solid #dca65f; outline-offset: 4px; }
 @media (max-width: 1100px) {
   .landing .hero-background { object-position: 57% center; }
-  .landing .values-section .shell { grid-template-columns: 1fr; gap: 30px; }
-  .landing .values-grid { grid-template-columns: repeat(3, 1fr); }
+  .landing .how-section { gap: 52px; }
   .landing .about-section { gap: 40px; }
   .landing .garden-doors { gap: 16px; }
   .landing .door-landscape { height: 180px; }
 }
 @media (max-width: 760px) {
   .landing .shell { width: calc(100% - 40px); }
-  .landing .site-header { height: 80px; }
-  .landing .header-actions { gap: 8px; }
+  .landing .site-header { height: auto; min-height: 112px; padding-block: 16px 12px; flex-wrap: wrap; gap: 8px; }
+  .landing .header-actions { width: 100%; justify-content: flex-end; gap: 14px; }
+  .landing .header-actions .language-link { margin-right: auto; }
+  .landing .header-actions > a { white-space: nowrap; }
+  .landing .header-cta { padding: 10px 14px; font-size: 12px; }
   .landing .site-header .brand { font-size: 20px; }
   .landing .brand-mark { width: 30px; height: 30px; }
   .landing .hero { min-height: 0; padding-block: 196px 20px; }
@@ -151,10 +144,7 @@
   .landing .launch-note .iconify { margin-top: 3px; }
   .landing .hero-bottom { gap: 12px; padding-block: 10px 16px; }
   .landing .hero-caption { display: none; }
-  .landing .hero-scroll, .landing .motion-toggle { font-size: 11px; }
-  .landing .promise-strip > div { flex-wrap: wrap; justify-content: center; gap: 12px 22px; padding-block: 20px; }
-  .landing .promise-strip span { font-size: 12px; gap: 8px; }
-  .landing .promise-strip .iconify { width: 16px; height: 16px; }
+  .landing .hero-scroll { font-size: 11px; }
   .landing .about-section { grid-template-columns: 1fr; padding-block: 44px; gap: 24px; }
   .landing .about-section h2 { font-size: 32px; }
   .landing .about-copy { font-size: 16px; }
@@ -168,27 +158,27 @@
   .landing .door-caption { padding: 17px 12px; gap: 6px; }
   .landing .door-caption h3 { font-size: 25px; }
   .landing .door-caption p { font-size: 13px; line-height: 1.6; }
-  .landing .door-caption > .iconify { width: 17px; height: 17px; }
-  .landing .how-section { padding-block: 44px; }
-  .landing .steps-grid { grid-template-columns: 1fr; gap: 24px; margin-top: 28px; }
-  .landing .step-card { border-right: none; border-left: 2px solid #c4ceb7; padding: 0 0 0 20px; }
-  .landing .step-card:last-child { border-left: 2px solid #c4ceb7; padding-left: 20px; }
-  .landing .step-top { margin-bottom: 10px; }
-  .landing .step-top > span { font-size: 26px; }
-  .landing .step-card h3 { font-size: 24px; }
-  .landing .values-section { padding-block: 44px; }
-  .landing .values-grid { grid-template-columns: 1fr; gap: 24px; }
-  .landing .values-section h2 { font-size: 32px; }
-  .landing .values-grid article > .iconify { margin-bottom: 10px; }
-  .landing .values-grid p { font-size: 15px; }
+  .landing .how-section { grid-template-columns: 1fr; padding-block: 48px; gap: 36px; }
+  .landing .journey-intro h2 { max-width: none; }
+  .landing .journey-note { margin-top: 24px; padding-top: 20px; max-width: none; }
+  .landing .journey-note p { font-size: 20px; }
+  .landing .journey-list li { grid-template-columns: 34px minmax(0, 1fr); gap: 16px; padding-bottom: 32px; }
+  .landing .journey-number { font-size: 28px; }
+  .landing .journey-list li:not(:last-child)::after { left: 16px; top: 43px; }
+  .landing .journey-list h3 { font-size: 24px; }
+  .landing .values-section { padding-block: 56px; }
+  .landing .values-section h2 { font-size: 34px; }
+  .landing .values-description { font-size: 15px; }
+  .landing .values-aside { font-size: 22px; margin-top: 24px; }
   .landing .faq-section { grid-template-columns: 1fr; padding-block: 44px; gap: 20px; }
   .landing .invitation { padding: 36px 22px; margin-bottom: 36px; }
   .landing .invitation h2 { font-size: 29px; }
   .landing .invitation h2 br { display: none; }
   .landing .invitation-actions { flex-direction: column; gap: 12px; }
-  .landing .site-footer { padding-bottom: 28px; }
+  .landing .site-footer { padding-bottom: max(88px, calc(64px + env(safe-area-inset-bottom))); }
+  .landing .back-to-top { width: 48px; padding: 12px; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); }
+  .landing .back-to-top span:not(.iconify) { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .landing .fireflies, .landing .motion-toggle { display: none; }
   .landing *, .landing *::before, .landing *::after { animation: none !important; transition: none !important; }
 }

@@ -36,6 +36,20 @@
       "when": 1792760047265,
       "tag": "0004_tricky_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793013137037,
+      "tag": "0005_chubby_starfox",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793027939210,
+      "tag": "0006_smiling_sharon_carter",
+      "breakpoints": true
     }
   ]
 }

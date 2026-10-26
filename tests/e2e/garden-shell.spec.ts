@@ -5,31 +5,37 @@ test.beforeEach(async ({ page }) => {
 })
 
 for (const locale of ['ru', 'en']) {
-  test(`${locale}: the garden fills the viewport with inset controls and named neighboring paths`, async ({ page }, testInfo) => {
-    await page.goto(`/${locale}/gardens`)
+  test(`${locale}: the header stays above an inset garden with reachable controls and neighboring paths`, async ({ page }, testInfo) => {
+    await page.goto(`/${locale}/gardens?garden=meadow`)
     const canvas = page.locator('canvas')
     await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
     const title = page.getByRole('heading', { level: 1 })
     await expect(title).toHaveText(locale === 'ru' ? 'Луг' : 'Meadow')
     for (const size of [page.viewportSize()!, { width: 844, height: 390 }]) {
       await page.setViewportSize(size)
-      await expect.poll(async () => (await canvas.boundingBox())?.height).toBeCloseTo(size.height, 0)
+      await expect.poll(async () => {
+        const bounds = await canvas.boundingBox()
+        const stage = await page.locator('.garden-stage').boundingBox()
+        return bounds && stage ? bounds.height - stage.height : Number.POSITIVE_INFINITY
+      }).toBeCloseTo(0, 0)
       const bounds = (await canvas.boundingBox())!
-      expect(bounds.x).toBe(0)
-      expect(bounds.y).toBe(0)
-      expect(bounds.width).toBeCloseTo(size.width, 0)
+      const header = (await page.getByTestId('garden-header').boundingBox())!
+      expect(bounds.x).toBeGreaterThan(0)
+      expect(bounds.y).toBeGreaterThanOrEqual(header.y + header.height)
+      expect(bounds.x + bounds.width).toBeLessThan(size.width)
+      expect(bounds.y + bounds.height).toBeLessThan(size.height)
       const heading = (await title.boundingBox())!
       expect(heading.x + heading.width / 2).toBeCloseTo(size.width / 2, 0)
-      expect(heading.y).toBeLessThan(40)
+      expect(heading.y).toBeLessThan(bounds.y + 40)
       const controls = (await page.locator('.camera-toolbar').boundingBox())!
-      expect(controls.x).toBeGreaterThan(size.width * 0.7)
-      expect(controls.y).toBeLessThan(40)
+      expect(controls.x).toBeGreaterThan(bounds.x + bounds.width * 0.7)
+      expect(controls.y).toBeLessThan(bounds.y + 40)
       for (const element of [page.getByTestId('garden-switch'), page.getByTestId('garden-previous'), page.getByTestId('garden-next'), page.getByTestId('garden-zoom-in'), page.getByTestId('garden-fullscreen')]) {
         const box = (await element.boundingBox())!
-        expect(box.x).toBeGreaterThanOrEqual(0)
-        expect(box.y).toBeGreaterThanOrEqual(0)
-        expect(box.x + box.width).toBeLessThanOrEqual(size.width)
-        expect(box.y + box.height).toBeLessThanOrEqual(size.height)
+        expect(box.x).toBeGreaterThanOrEqual(bounds.x)
+        expect(box.y).toBeGreaterThanOrEqual(bounds.y)
+        expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width)
+        expect(box.y + box.height).toBeLessThanOrEqual(bounds.y + bounds.height)
         expect(box.width).toBeGreaterThanOrEqual(44)
         expect(box.height).toBeGreaterThanOrEqual(44)
       }

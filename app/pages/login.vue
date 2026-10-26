@@ -1,5 +1,5 @@
 <script setup lang="ts">
-definePageMeta({ colorMode: 'light' })
+definePageMeta({ middleware: 'guest', colorMode: 'light' })
 </script>
 
 <template>

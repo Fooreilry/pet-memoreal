@@ -2,7 +2,7 @@
 import { Application } from 'pixi.js'
 import { findDemoGarden } from '../data/demoGardens'
 import type { GardenId } from '../data/demoGardens'
-import { createGardenScene } from '../utils/gardenScene'
+import { createGardenScene, getGardenOverviewLayout } from '../utils/gardenScene'
 import type { PublicMemorial } from '../../shared/memorials'
 
 const props = withDefaults(defineProps<{ gardenId?: GardenId, memorials?: PublicMemorial[], focusId?: string, canCreate?: boolean, editing?: boolean }>(), { memorials: () => [], focusId: undefined, gardenId: undefined, canCreate: false, editing: false })
@@ -16,6 +16,7 @@ const state = ref<'loading' | 'ready' | 'error'>('loading')
 const cameraEnabled = computed(() => state.value === 'ready' && !!props.gardenId && !modalOpen.value && !props.editing)
 const { camera, interacting, dragging, reset, resize, zoomTo, reveal, pointerDown, pointerMove, pointerUp, clickCapture, wheel, keydown } = useGardenCamera(viewport, cameraEnabled)
 const world = shallowRef({ width: 1000, height: 650 })
+const overviewPlaces = computed(() => getGardenOverviewLayout(world.value.width, world.value.height))
 let application: Application | undefined
 let observer: ResizeObserver | undefined
 let disposed = false
@@ -25,12 +26,13 @@ let intersection: IntersectionObserver | undefined
 let motionQuery: MediaQueryList | undefined
 let animate: ((time: number) => void) | undefined
 let sceneRoot: Application['stage'] | undefined
+let rendered: { app: Application, width: number, height: number, gardenId?: GardenId, locale: string, memorials: PublicMemorial[] } | undefined
 let elapsed = 0
 const paused = ref(false)
 const reducedMotion = ref(false)
 const inView = ref(true)
 const visible = ref(true)
-const moving = computed(() => state.value === 'ready' && !paused.value && !reducedMotion.value && inView.value && visible.value)
+const moving = computed(() => state.value === 'ready' && !paused.value && !reducedMotion.value && !modalOpen.value && !props.editing && inView.value && visible.value)
 
 function syncMotion() {
   if (moving.value) application?.start()
@@ -52,6 +54,9 @@ function render() {
   const width = host.value.clientWidth
   const height = host.value.clientHeight
   if (!width || !height) return
+  // ResizeObserver also reports the initial, unchanged size; keep the existing cache.
+  if (rendered?.app === application && rendered.width === width && rendered.height === height
+    && rendered.gardenId === props.gardenId && rendered.locale === locale.value && rendered.memorials === props.memorials) return
   resize(width, height)
   application.renderer.resize(width, height)
   const scale = Math.min(width / (width < 600 ? 640 : 1000), height / (width < 600 ? 840 : 650))
@@ -59,7 +64,7 @@ function render() {
   const worldH = Math.round(height / scale)
   if (world.value.width !== worldW || world.value.height !== worldH) world.value = { width: worldW, height: worldH }
   const scene = createGardenScene(worldW, worldH, findDemoGarden(props.gardenId), t, id => emit('select', id), props.memorials)
-  for (const child of application.stage.removeChildren()) child.destroy({ children: true })
+  for (const child of application.stage.removeChildren()) child.destroy({ children: true, context: true })
   application.stage.addChild(scene.root)
   sceneRoot = scene.root
   applyCamera()
@@ -67,6 +72,7 @@ function render() {
   scene.update(elapsed)
   application.canvas.setAttribute('aria-label', props.gardenId ? `${t('garden.territoryLabel', { name: t(`garden.names.${props.gardenId}`) })} ${t(`garden.landscapes.${props.gardenId}`)}. ${t(`garden.life.${props.gardenId}`)}` : t('garden.mapLabel'))
   application.render()
+  rendered = { app: application, width, height, gardenId: props.gardenId, locale: locale.value, memorials: props.memorials }
 }
 
 function scheduleRender() {
@@ -81,7 +87,7 @@ async function start() {
   try {
     await app.init({ preference: 'webgl', antialias: true, autoDensity: true, resolution: Math.min(window.devicePixelRatio || 1, 2), autoStart: false, backgroundAlpha: 0 })
     if (disposed || currentAttempt !== attempt) {
-      app.destroy({ removeView: true }, { children: true })
+      app.destroy({ removeView: true }, { children: true, context: true })
       return
     }
     application = app
@@ -101,8 +107,11 @@ async function start() {
     observer.observe(host.value!)
     state.value = 'ready'
   } catch {
-    if (app.renderer) app.destroy({ removeView: true }, { children: true })
+    if (app.renderer) app.destroy({ removeView: true }, { children: true, context: true })
     application = undefined
+    rendered = undefined
+    sceneRoot = undefined
+    animate = undefined
     if (!disposed && currentAttempt === attempt) state.value = 'error'
   }
 }
@@ -130,8 +139,9 @@ onBeforeUnmount(() => {
   cancelAnimationFrame(frame)
   animate = undefined
   sceneRoot = undefined
-  application?.destroy({ removeView: true }, { children: true })
+  application?.destroy({ removeView: true }, { children: true, context: true })
   application = undefined
+  rendered = undefined
 })
 </script>
 
@@ -159,6 +169,18 @@ onBeforeUnmount(() => {
     @keydown="keydown"
   >
     <div ref="host" class="canvas-host" />
+    <nav v-if="state === 'ready' && !gardenId" class="garden-choices" :aria-label="t('garden.choose')" data-testid="garden-choices">
+      <button
+        v-for="place in overviewPlaces"
+        :key="place.garden.id"
+        type="button"
+        class="garden-choice"
+        :data-testid="`garden-choice-${place.garden.id}`"
+        :aria-label="t(`garden.names.${place.garden.id}`)"
+        :style="{ left: `${place.x / world.width * 100}%`, top: `${place.y / world.height * 100}%`, width: `${place.width / world.width * 100}%`, height: `${place.height / world.height * 100}%` }"
+        @click="emit('select', place.garden.id)"
+      />
+    </nav>
     <GardenMemorials v-if="state === 'ready' && gardenId" :key="gardenId" :garden-id="gardenId" :width="world.width" :height="world.height" :camera="camera" :interacting="interacting" :saved="memorials" :focus-id="focusId" :can-create="canCreate && !editing" @modal="modalOpen = $event" @reveal="reveal" @create="emit('create', $event)" />
     <div v-if="state !== 'ready'" class="canvas-state">
       <AppState
@@ -182,7 +204,7 @@ onBeforeUnmount(() => {
       <template #content><div class="garden-help-card"><p>{{ t('garden.camera.help') }}</p><p>{{ t('creation.mapHint') }}</p><p v-if="reducedMotion">{{ t('garden.reducedMotion') }}</p></div></template>
     </UPopover>
   </div>
-  <p id="garden-camera-help" class="sr-only">{{ t('garden.camera.help') }} {{ t('creation.mapHint') }}</p>
+  <p v-if="gardenId" id="garden-camera-help" class="sr-only">{{ t('garden.camera.help') }} {{ t('creation.mapHint') }}</p>
 </template>
 
 <style scoped>
@@ -191,6 +213,9 @@ onBeforeUnmount(() => {
 .camera-dragging { cursor: grabbing; }
 .canvas-wrapper:focus-visible { outline: 3px solid #efc681; outline-offset: -4px; }
 .canvas-host { position: absolute; inset: 0; }
+.garden-choices { position: absolute; inset: 0; pointer-events: none; }
+.garden-choice { position: absolute; border: 3px solid transparent; border-radius: 28px; background: transparent; cursor: pointer; pointer-events: auto; }
+.garden-choice:hover, .garden-choice:focus-visible { border-color: #efc681; outline: none; box-shadow: inset 0 0 0 1px #142e2e; }
 .canvas-host :deep(canvas) { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: pan-y; }
 .canvas-state { position: absolute; inset: 0; display: grid; place-items: center; background: var(--garden-cream); }
 .camera-enabled :deep(canvas) { touch-action: none; }

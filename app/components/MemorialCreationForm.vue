@@ -13,7 +13,7 @@ const form = useTemplateRef('form')
 const ready = ref(false)
 const busy = ref(false)
 const errorKey = ref('')
-const state = reactive({ name: '', born: '', died: '', story: '', gardenId: props.gardenId ?? 'meadow', place: props.place, requestId: '' })
+const state = reactive({ name: '', born: '', died: '', story: '', isAnonymous: false, gardenId: props.gardenId ?? 'meadow', place: props.place, requestId: '' })
 const schema = computed(() => memorialSchema(key => t(`creation.validation.${key}`)))
 onMounted(() => { state.requestId = crypto.randomUUID(); ready.value = true })
 watch(locale, () => form.value?.clear())
@@ -58,6 +58,7 @@ async function submit(event: FormSubmitEvent<NewMemorial>) {
           <option v-for="id in gardenIds" :key="id" :value="id">{{ t(`garden.names.${id}`) }}</option>
         </select>
       </UFormField>
+      <UFormField name="isAnonymous"><UCheckbox v-model="state.isAnonymous" :label="t('creation.anonymous')" :description="t('creation.anonymousHelp')" /></UFormField>
       <p class="form-note"><UIcon name="i-lucide-globe" aria-hidden="true" />{{ t('creation.publicNote') }}</p>
       <UAlert v-if="errorKey" color="error" :title="t(`creation.errors.${errorKey}`)" role="alert" />
       <UButton type="submit" color="secondary" :loading="busy" :disabled="!ready || busy" block>{{ t('creation.submit') }}</UButton>
