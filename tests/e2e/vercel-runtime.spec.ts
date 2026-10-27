@@ -1,6 +1,17 @@
+import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 import pg from 'pg'
 import { getDatabaseOptions } from '../../server/db/config'
+
+test('Vercel country headers select SSR language without localized routes or browser-language detection', async ({ request }) => {
+  for (const [country, language] of [['RU', 'ru'], ['US', 'en'], ['', 'en']] as const) {
+    const response = await request.get('/', { headers: { 'x-vercel-ip-country': country, 'accept-language': language === 'ru' ? 'en-US' : 'ru-RU' }, maxRedirects: 0 })
+    expect(response.status()).toBe(200)
+    expect(response.headers().location).toBeUndefined()
+    expect(response.headers()['cache-control']).toContain('no-store')
+    expect(await response.text()).toContain(`lang="${language}"`)
+  }
+})
 
 test('Vercel runtime uses URL connections, a shared database limit and trusted proxy IPs', async ({ page, request }) => {
   const database = process.env.E2E_DATABASE
@@ -9,13 +20,13 @@ test('Vercel runtime uses URL connections, a shared database limit and trusted p
   expect(health.status()).toBe(200)
   expect(health.headers()['cache-control']).toContain('no-store')
   expect(await health.json()).toEqual({ status: 'ok' })
-  await page.goto('/ru')
+  await visitLocale(page, '/', 'ru')
   await page.locator('.auth-header-login').click()
-  await expect(page).toHaveURL('/ru/login')
+  await expect(page).toHaveURL('/login')
   const origin = 'http://127.0.0.1:4175'
   const reset = (ip: string, extra: Record<string, string> = {}) => request.post('/api/auth/request-password-reset', {
     headers: { origin, 'x-vercel-forwarded-for': ip, ...extra },
-    data: { email: 'absent-vercel-runtime@example.test', redirectTo: `${origin}/ru/reset-password` }
+    data: { email: 'absent-vercel-runtime@example.test', redirectTo: `${origin}/reset-password` }
   })
   // Concurrent calls must not all pass a stale counter on separate DB connections.
   const responses = await Promise.all(Array.from({ length: 12 }, () => reset('198.51.100.41')))

@@ -1,5 +1,5 @@
-import { findDemoGarden } from './demoGardens'
 import type { GardenId } from './demoGardens'
+import { getGardenLayout } from './gardenLayout'
 import type { PublicMemorial } from '../../shared/memorials'
 import { gardenDemoPlaces } from '../../shared/gardens'
 
@@ -26,23 +26,15 @@ export type GardenMemorial = DemoMemorial | PublicMemorial
 export function getMemorialLayout(width: number, height: number, gardenId: GardenId, saved: PublicMemorial[] = []) {
   const records = new Map(saved.filter(item => item.gardenId === gardenId).map(item => [item.place, item]))
   const demos = new Map(getDemoMemorials(gardenId).map(item => [item.place, item]))
-  const count = findDemoGarden(gardenId)!.count
-  const columns = width < 800 ? 3 : 4
-  const rows = Math.ceil(count / columns)
-  const cellW = (width - 140) / columns
+  const layout = getGardenLayout(width, height, gardenId)
+  // Legacy scenery consumers can still read these metrics while the positions are
+  // sourced from versioned chunks rather than an evenly spaced visual grid.
+  const rows = Math.ceil(Math.sqrt(layout.places.length))
   const cellH = (height - 200) / rows
   return {
     rows,
     cellH,
-    places: Array.from({ length: count }, (_, index) => ({
-      place: index + 1,
-      memorial: (records.get(index + 1) ?? demos.get(index + 1)) as GardenMemorial | undefined,
-      x: 70 + (index % columns + 0.5) * cellW
-        + (gardenId === 'meadow' ? Math.sin(Math.floor(index / columns) * 2) * cellW * 0.12 : 0)
-        + (gardenId === 'grove' ? (Math.floor(index / columns) % 2 ? 1 : -1) * cellW * 0.06 : 0),
-      y: 78 + (Math.floor(index / columns) + 0.5) * cellH
-        + (gardenId === 'meadow' ? Math.sin(index % columns * 1.8) * 14 : 0)
-        + (gardenId === 'hill' ? (index % columns / (columns - 1) - 0.5) * 28 : 0)
-    }))
+    chunks: layout.chunks,
+    places: layout.places.map(place => ({ ...place, memorial: (records.get(place.place) ?? demos.get(place.place)) as GardenMemorial | undefined }))
   }
 }

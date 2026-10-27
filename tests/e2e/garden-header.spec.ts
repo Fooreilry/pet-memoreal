@@ -1,3 +1,4 @@
+import { visitLocale } from './helpers/locale'
 import { randomUUID } from 'node:crypto'
 import pg from 'pg'
 import { hashPassword } from 'better-auth/crypto'
@@ -38,7 +39,7 @@ async function openAccount(page: Page, isMobile: boolean) {
 for (const locale of ['ru', 'en']) {
   base(`${locale}: guests see a header above four gardens, with a keyboard and touch accessible account menu`, async ({ page, isMobile }, testInfo) => {
     const ru = locale === 'ru'
-    const response = await page.goto(`/${locale}/gardens`)
+    const response = await visitLocale(page, `/gardens`, locale)
     expect(response!.headers()['cache-control']).toContain('private')
     expect(response!.headers()['cache-control']).toContain('no-store')
     const header = page.getByTestId('garden-header')
@@ -81,10 +82,11 @@ for (const locale of ['ru', 'en']) {
     await openAccount(page, isMobile)
     await page.screenshot({ path: testInfo.outputPath('garden-header-guest.png'), animations: 'disabled' })
     await login.click()
-    await expect(page).toHaveURL(new RegExp(`/${locale}/login$`))
+    await expect(page).toHaveURL(new RegExp(`/login$`))
     await page.goBack()
     await page.getByRole('link', { name: ru ? 'Switch to English' : 'Переключить на русский', exact: true }).click()
-    await expect(page).toHaveURL(new RegExp(`/${ru ? 'en' : 'ru'}/gardens$`))
+    await expect(page).toHaveURL(/\/gardens$/)
+    await expect(page.locator('html')).toHaveAttribute('lang', ru ? 'en' : 'ru')
     await expect(page.getByTestId('garden-header')).toBeVisible()
     await expect(page.getByTestId('garden-choices').getByRole('button')).toHaveCount(4)
   })
@@ -96,7 +98,7 @@ for (const locale of ['ru', 'en']) {
     const response = await page.request.post('/api/memorials', { headers: { origin }, data: { name: 'Луна', born: 2012, died: 2025, story: 'Встречала нас у двери и любила солнечные дни.', gardenId: 'lake', place: ru ? 8 : 9, requestId: randomUUID() } })
     expect(response.status()).toBe(201)
     const memorial = await response.json()
-    await page.goto(`/${locale}/gardens`)
+    await visitLocale(page, `/gardens`, locale)
     const icon = page.getByTestId('garden-account-menu')
     await expect(icon).toHaveAttribute('data-authenticated', 'true')
     await openAccount(page, isMobile)
@@ -105,7 +107,7 @@ for (const locale of ['ru', 'en']) {
     await expect(profile).toBeVisible()
     await expect(exit).toBeVisible()
     await profile.click()
-    await expect(page).toHaveURL(new RegExp(`/${locale}/account$`))
+    await expect(page).toHaveURL(new RegExp(`/account$`))
     await expect(page.getByTestId('profile-name')).toHaveText('Garden visitor')
     await page.goBack()
     await page.getByTestId('garden-choice-lake').click()
@@ -124,14 +126,16 @@ for (const locale of ['ru', 'en']) {
     await page.unroute('**/api/auth/sign-out')
     await openAccount(page, isMobile)
     await exit.click()
-    await expect(page).toHaveURL(new RegExp(`/${locale}$`))
+    await expect(page).toHaveURL(new RegExp(`/$`))
     await expect(page.locator('.landing')).toBeVisible()
     expect((await page.request.get('/api/me')).status()).toBe(401)
     await page.reload()
     await expect(page.locator('.landing')).toBeVisible()
-    await page.goto(`/${locale}/gardens?garden=lake`)
+    await visitLocale(page, `/gardens?garden=lake`, locale)
     await expect(icon).toHaveAttribute('data-authenticated', 'false')
     await expect(stone).toBeVisible()
+    await stone.focus()
+    await expect(stone).toBeInViewport()
     await stone.click()
     await expect(page.getByRole('dialog')).toHaveAccessibleName('Луна')
     await page.keyboard.press('Escape')

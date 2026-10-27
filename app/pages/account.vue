@@ -5,7 +5,6 @@ import type { FormSubmitEvent } from '@nuxt/ui'
 definePageMeta({ middleware: 'auth', colorMode: 'light' })
 const { t, locale } = useI18n()
 const localePath = useLocalePath()
-const switchLocalePath = useSwitchLocalePath()
 const auth = useAuthClient()
 const { data: user, error, refresh } = await useFetch('/api/me')
 const { data: memorials, error: memorialError, status: memorialStatus, refresh: refreshMemorials } = await useFetch('/api/memorials/mine', { key: 'my-memorials', default: () => [] })
@@ -84,7 +83,7 @@ async function signOut() {
         <NuxtLink :to="localePath('/')" class="brand"><span class="brand-mark"><UIcon name="i-lucide-sprout" aria-hidden="true" /></span><span>PetMemoreal<span class="brand-dot">.</span></span></NuxtLink>
         <nav :aria-label="t('account.navigation')">
           <NuxtLink :to="localePath('/gardens')" class="account-garden-link"><UIcon name="i-lucide-trees" aria-hidden="true" /><span>{{ t('garden.enter') }}</span></NuxtLink>
-          <NuxtLink :to="switchLocalePath(locale === 'ru' ? 'en' : 'ru')" class="language-link" :aria-label="t('nav.language')" :lang="locale === 'ru' ? 'en' : 'ru'">{{ locale === 'ru' ? 'EN' : 'RU' }}</NuxtLink>
+          <LanguageSwitch />
         </nav>
       </div>
     </header>

@@ -7,7 +7,7 @@ import { drawClover, drawFlowerSpires, drawMeadowLandscape } from '../../app/uti
 
 type Rect = { left: number, right: number, top: number, bottom: number }
 type Layout = ReturnType<typeof getMeadowSceneryLayout>
-const fullSizes = [[1000, 650], [640, 840], [640, 1340], [1900, 650]] as const
+const fullSizes = [[1200, 1000]] as const // The garden world is fixed; viewport changes only move the camera.
 const previewSizes = [[451, 276], [271, 371], [271, 608]] as const
 
 function footprint(x: number, y: number, rx: number, up: number, down: number): Rect {
@@ -35,7 +35,7 @@ function bounds(g: Graphics): Rect {
   return { left: g.bounds.minX, right: g.bounds.maxX, top: g.bounds.minY, bottom: g.bounds.maxY }
 }
 
-test('meadow plants remain deterministic and sparse at desktop and mobile sizes', () => {
+test('meadow plants remain deterministic and sparse in the fixed garden world', () => {
   for (const [width, height] of fullSizes) {
     const layout = getMeadowSceneryLayout(width, height)
     assert.deepEqual(getMeadowSceneryLayout(width, height), layout)
@@ -59,8 +59,8 @@ test('meadow flowers, grass, clover and shrubs reserve all twelve memorial targe
     assert.equal(places.filter(place => !place.memorial).length, 8)
     for (const prop of propBounds(getMeadowSceneryLayout(width, height))) {
       for (const place of places) {
-        const overlap = prop.left < place.x + 65 && prop.right > place.x - 65
-          && prop.top < place.y + 65 && prop.bottom > place.y - 52
+        const overlap = prop.left < place.x + 70 && prop.right > place.x - 70
+          && prop.top < place.y + 70 && prop.bottom > place.y - 55
         assert.equal(overlap, false, `scenery obscures place ${place.place} at ${width}×${height}`)
       }
     }

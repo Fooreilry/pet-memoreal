@@ -1,3 +1,4 @@
+import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
@@ -15,14 +16,14 @@ test('the green hill opens from its preview and every monument stays reachable b
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.goto('/ru/gardens')
+  await visitLocale(page, '/gardens', 'ru')
   await expect(page.getByTestId('garden-choice-hill')).toBeVisible()
   await clearPreview(page)
   await page.locator('canvas').screenshot({ path: testInfo.outputPath('hill-garden-selection.png') })
   const hill = page.getByTestId('garden-choice-hill')
   if (isMobile) await hill.tap()
   else await hill.click()
-  await expect(page).toHaveURL(/\/ru\/gardens\?garden=hill$/)
+  await expect(page).toHaveURL(/\/gardens\?garden=hill$/)
   const scene = page.locator('.canvas-wrapper')
   const canvas = page.locator('canvas')
   await expect(scene).toHaveAttribute('data-state', 'ready')
@@ -55,7 +56,7 @@ test('hill scenery preserves the complete layout after rotation and a free place
   page.on('pageerror', error => errors.push(error.message))
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.route('**/api/auth/get-session', route => route.fulfill({ json: null }))
-  await page.goto('/en/gardens?garden=hill')
+  await visitLocale(page, '/gardens?garden=hill', 'en')
   const scene = page.locator('.canvas-wrapper')
   const canvas = page.locator('canvas')
   await expect(scene).toHaveAttribute('data-state', 'ready')
@@ -71,7 +72,8 @@ test('hill scenery preserves the complete layout after rotation and a free place
     await expect(scene).toHaveAttribute('data-motion', 'paused')
     await expect(page.locator('.memorial-hit')).toHaveCount(14)
     await expect(page.locator('.memorial-hit[data-monument-kind]')).toHaveCount(4)
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true)
+    // Dynamic viewport units can settle after the backing canvas during rotation.
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true)
     await clearPreview(page)
     await canvas.screenshot({ path: testInfo.outputPath(`hill-${size.width}.png`) })
   }
@@ -81,7 +83,7 @@ test('hill scenery preserves the complete layout after rotation and a free place
   await empty.focus()
   await expect(empty).toBeInViewport()
   await page.keyboard.press('Enter')
-  await expect(page).toHaveURL(/\/en\/login\?redirect=/)
-  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/en/gardens?garden=hill&create=3')
+  await expect(page).toHaveURL(/\/login\?redirect=/)
+  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/gardens?garden=hill&create=3')
   expect(errors).toEqual([])
 })

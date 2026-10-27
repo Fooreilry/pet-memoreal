@@ -1,9 +1,10 @@
+import { visitLocale } from './helpers/locale'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import pg from 'pg'
 import { hashPassword } from 'better-auth/crypto'
 import { expect, test as base } from '@playwright/test'
-import type { APIRequestContext } from '@playwright/test'
+import type { APIRequestContext, Locator, Page } from '@playwright/test'
 import { getDatabaseOptions } from '../../server/db/config'
 import { signInFixture } from './helpers/sign-in'
 
@@ -42,23 +43,31 @@ async function signIn(request: APIRequestContext, member: Member) {
   expect(response.ok()).toBe(true)
 }
 
+async function revealPlace(page: Page, place: Locator) {
+  // Keyboard focus reveals a stable world slot even when the cover view clips it.
+  await page.locator('.canvas-wrapper').focus()
+  await place.focus()
+  await expect(place).toBeInViewport()
+}
+
 for (const locale of ['ru', 'en']) {
   test(`${locale}: create in a chosen garden place, reload it, find it in the account and visit as a guest`, async ({ page, members, browser, isMobile }, testInfo) => {
     const ru = locale === 'ru'
     const place = ru ? 3 : 4
-    await page.goto(`/${locale}/gardens?garden=lake`)
+    await visitLocale(page, `/gardens?garden=lake`, locale)
     const empty = page.getByTestId(`empty-lake-${place}`)
     await expect(empty).toBeEnabled()
+    await revealPlace(page, empty)
     if (isMobile) await empty.tap()
     else await empty.click()
-    await expect(page).toHaveURL(new RegExp(`/${locale}/login\\?redirect=`))
-    expect(new URL(page.url()).searchParams.get('redirect')).toBe(`/${locale}/gardens?garden=lake&create=${place}`)
+    await expect(page).toHaveURL(new RegExp(`/login\\?redirect=`))
+    expect(new URL(page.url()).searchParams.get('redirect')).toBe(`/gardens?garden=lake&create=${place}`)
     const registration = page.locator('.auth-links').getByRole('link', { name: ru ? 'Создать аккаунт' : 'Create an account', exact: true })
-    expect(new URL((await registration.getAttribute('href'))!, origin).searchParams.get('redirect')).toBe(`/${locale}/gardens?garden=lake&create=${place}`)
+    expect(new URL((await registration.getAttribute('href'))!, origin).searchParams.get('redirect')).toBe(`/gardens?garden=lake&create=${place}`)
     await page.getByLabel('Email', { exact: true }).fill(members.owner.email)
     await page.getByLabel(ru ? 'Пароль' : 'Password', { exact: true }).fill(password)
     await page.getByRole('button', { name: ru ? 'Войти' : 'Sign in', exact: true }).click()
-    await expect(page).toHaveURL(new RegExp(`/${locale}/gardens\\?garden=lake&create=${place}$`))
+    await expect(page).toHaveURL(new RegExp(`/gardens\\?garden=lake&create=${place}$`))
     await expect(page.getByRole('dialog')).toHaveAccessibleName(ru ? 'Создать место памяти' : 'Create a memorial')
     await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-motion', 'paused')
     await expect(page.getByTestId('creation-location')).toContainText(`${ru ? 'Место' : 'Place'} ${place}`)
@@ -69,6 +78,7 @@ for (const locale of ['ru', 'en']) {
     await expect(empty).toBeFocused()
     if (!isMobile) await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-motion', 'running')
     await page.getByTestId('garden-zoom-in').click()
+    await revealPlace(page, empty)
     if (isMobile) await empty.tap()
     else await empty.click()
     const submit = page.getByRole('button', { name: ru ? 'Сохранить место памяти' : 'Save memorial', exact: true })
@@ -95,7 +105,7 @@ for (const locale of ['ru', 'en']) {
     await page.unroute('**/api/memorials')
     await page.screenshot({ path: testInfo.outputPath('memorial-form.png'), fullPage: true, animations: 'disabled' })
     await submit.click()
-    await expect(page).toHaveURL(new RegExp(`/${locale}/gardens\\?garden=lake&memorial=`))
+    await expect(page).toHaveURL(new RegExp(`/gardens\\?garden=lake&memorial=`))
     const id = new URL(page.url()).searchParams.get('memorial')!
     const dialog = page.getByRole('dialog')
     await expect(dialog).toHaveAccessibleName('Мой друг <Milo>')
@@ -120,7 +130,7 @@ for (const locale of ['ru', 'en']) {
     const guest = await browser.newContext({ baseURL: origin })
     try {
       const other = await guest.newPage()
-      await other.goto(`/${locale}/gardens?garden=lake&memorial=${id}`)
+      await visitLocale(other, `/gardens?garden=lake&memorial=${id}`, locale)
       await expect(other.getByRole('dialog')).toHaveAccessibleName('Мой друг <Milo>')
       await expect(other.getByTestId('memorial-creator')).toContainText('Memorial test')
       const response = await other.request.get('/api/gardens/lake/memorials')
@@ -142,7 +152,7 @@ for (const locale of ['ru', 'en']) {
     const profileName = `Private ${randomUUID()}`
     const profile = await page.request.post('/api/auth/update-user', { headers: { origin }, data: { name: profileName, surname: 'Private surname' } })
     expect(profile.ok()).toBe(true)
-    await page.goto(`/${locale}/gardens?garden=meadow&create=${place}`)
+    await visitLocale(page, `/gardens?garden=meadow&create=${place}`, locale)
     const dialog = page.getByRole('dialog')
     await expect(dialog).toHaveAccessibleName(ru ? 'Создать место памяти' : 'Create a memorial')
     await dialog.getByLabel(ru ? 'Имя питомца' : 'Pet’s name', { exact: true }).fill('Тихая память')
@@ -165,7 +175,7 @@ for (const locale of ['ru', 'en']) {
       page.waitForRequest(request => new URL(request.url()).pathname === '/api/memorials' && request.method() === 'POST'),
       submit.click()
     ])
-    await expect(page).toHaveURL(new RegExp(`/${locale}/gardens\\?garden=meadow&memorial=`))
+    await expect(page).toHaveURL(new RegExp(`/gardens\\?garden=meadow&memorial=`))
     const url = page.url()
     const id = new URL(url).searchParams.get('memorial')!
     await expect(dialog).toHaveAccessibleName('Тихая память')
@@ -181,7 +191,7 @@ for (const locale of ['ru', 'en']) {
     const guest = await browser.newContext({ baseURL: origin })
     try {
       const other = await guest.newPage()
-      await other.goto(url)
+      await visitLocale(other, url, locale)
       await expect(other.getByRole('dialog')).toHaveAccessibleName('Тихая память')
       await expect(other.getByTestId('memorial-creator')).toHaveText(`${ru ? 'Создатель места:' : 'Created by:'} ${ru ? 'Анонимно' : 'Anonymous'}`)
       await other.reload()
@@ -222,7 +232,7 @@ base('the anonymity migration preserves old records without changing the default
 
 test('a place taken during editing keeps the draft and displays the saved memorial after closing', async ({ page, members, browser }) => {
   await signIn(page.request, members.owner)
-  await page.goto('/en/gardens?garden=grove&create=3')
+  await visitLocale(page, '/gardens?garden=grove&create=3', 'en')
   const dialog = page.getByRole('dialog')
   await expect(dialog).toHaveAccessibleName('Create a memorial')
   await dialog.getByLabel('Pet’s name', { exact: true }).fill('My friend')
@@ -242,7 +252,9 @@ test('a place taken during editing keeps the draft and displays the saved memori
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
     await expect(page.getByTestId('empty-grove-3')).toHaveCount(0)
-    await page.getByTestId(`memorial-${record.id}`).click()
+    const stone = page.getByTestId(`memorial-${record.id}`)
+    await revealPlace(page, stone)
+    await stone.click()
     await expect(dialog).toHaveAccessibleName('Another friend')
   } finally { await other.close() }
 })

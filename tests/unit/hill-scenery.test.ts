@@ -3,10 +3,11 @@ import test from 'node:test'
 import { Graphics } from 'pixi.js'
 import { getHillSceneryLayout, hillRockKinds } from '../../app/data/hillScenery'
 import { getMemorialLayout } from '../../app/data/demoMemorials'
+import { getGardenLayout } from '../../app/data/gardenLayout'
 import { drawHillLandscape } from '../../app/utils/hillScenery'
 
 type Rect = { left: number, right: number, top: number, bottom: number }
-const fullSizes = [[1000, 650], [1200, 900], [640, 1340], [1900, 650]] as const
+const fullSizes = [[1200, 1000]] as const // The garden world is fixed; viewport changes only move the camera.
 const previewSizes = [[451, 276], [271, 371], [271, 608]] as const
 
 function intersects(a: Rect, b: Rect) {
@@ -18,7 +19,7 @@ function inside(rect: Rect, width: number, height: number) {
   assert.ok(rect.top >= 0 && rect.bottom <= height, 'scenery must fit the world height')
 }
 
-test('hill scenery is deterministic, bounded and includes four different rock forms at desktop and mobile sizes', () => {
+test('hill scenery is deterministic, bounded and includes four different rock forms in the fixed garden world', () => {
   for (const [width, height] of fullSizes) {
     const first = getHillSceneryLayout(width, height)
     assert.deepEqual(getHillSceneryLayout(width, height), first)
@@ -26,6 +27,7 @@ test('hill scenery is deterministic, bounded and includes four different rock fo
     assert.ok(first.rocks.length > 0 && first.rocks.length <= 36)
     assert.ok(first.shrubs.length > 0 && first.shrubs.length <= 36)
     assert.equal(first.stream.length, 25)
+    assert.deepEqual(first.stream, getGardenLayout(width, height, 'hill').features.stream, 'stream must follow the shared map plan')
     assert.equal(first.stream[0]!.y, 0, 'the stream enters through the world edge')
     assert.equal(first.stream.at(-1)!.y, height, 'the stream leaves through the world edge')
     for (const rock of first.rocks) {
@@ -47,7 +49,7 @@ test('rocks, shrubs and the full stream corridor leave every memorial target and
   for (const [width, height] of fullSizes) {
     const { rocks, shrubs, stream } = getHillSceneryLayout(width, height)
     const protectedPlaces = getMemorialLayout(width, height, 'hill').places.map(place => ({
-      left: place.x - 65, right: place.x + 65, top: place.y - 52, bottom: place.y + 65
+      left: place.x - 70, right: place.x + 70, top: place.y - 55, bottom: place.y + 70
     }))
     const scenery: Rect[] = [
       ...rocks.map(rock => ({ left: rock.x - rock.size * 1.6, right: rock.x + rock.size * 1.6, top: rock.y - rock.size * 1.5, bottom: rock.y + rock.size * 0.85 })),

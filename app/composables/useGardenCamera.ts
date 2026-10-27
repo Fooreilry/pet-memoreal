@@ -4,7 +4,7 @@ type Point = { x: number, y: number }
 
 export function useGardenCamera(viewport: Ref<HTMLElement | undefined>, enabled: Ref<boolean>) {
   const camera = reactive({ zoom: 1, x: 0, y: 0 })
-  const size = reactive({ width: 0, height: 0 })
+  const size = reactive({ width: 0, height: 0, contentWidth: 0, contentHeight: 0 })
   const interacting = ref(false)
   const dragging = ref(false)
   const pointers = new Map<number, Point>()
@@ -14,8 +14,13 @@ export function useGardenCamera(viewport: Ref<HTMLElement | undefined>, enabled:
   let settle: ReturnType<typeof setTimeout> | undefined
 
   function constrain() {
-    camera.x = Math.max(size.width * (1 - camera.zoom), Math.min(0, camera.x))
-    camera.y = Math.max(size.height * (1 - camera.zoom), Math.min(0, camera.y))
+    const ox = (size.width - size.contentWidth) / 2, oy = (size.height - size.contentHeight) / 2
+    camera.x = size.contentWidth * camera.zoom <= size.width
+      ? size.contentWidth * (1 - camera.zoom) / 2
+      : Math.max(size.width - ox - size.contentWidth * camera.zoom, Math.min(-ox, camera.x))
+    camera.y = size.contentHeight * camera.zoom <= size.height
+      ? size.contentHeight * (1 - camera.zoom) / 2
+      : Math.max(size.height - oy - size.contentHeight * camera.zoom, Math.min(-oy, camera.y))
   }
 
   function stopInteraction() {
@@ -34,14 +39,16 @@ export function useGardenCamera(viewport: Ref<HTMLElement | undefined>, enabled:
     camera.y = 0
   }
 
-  function resize(width: number, height: number) {
-    // Keep the same normalized view center when the container changes size.
-    if (size.width && size.height) {
-      camera.x *= width / size.width
-      camera.y *= height / size.height
-    }
+  function resize(width: number, height: number, contentWidth = width, contentHeight = height) {
+    // Retain the same point in the fixed world when a phone rotates.
+    const centerX = size.contentWidth ? (size.contentWidth / 2 - camera.x) / (size.contentWidth * camera.zoom) : 0.5
+    const centerY = size.contentHeight ? (size.contentHeight / 2 - camera.y) / (size.contentHeight * camera.zoom) : 0.5
     size.width = width
     size.height = height
+    size.contentWidth = contentWidth
+    size.contentHeight = contentHeight
+    camera.x = contentWidth / 2 - centerX * contentWidth * camera.zoom
+    camera.y = contentHeight / 2 - centerY * contentHeight * camera.zoom
     stopInteraction()
     constrain()
   }
@@ -55,8 +62,10 @@ export function useGardenCamera(viewport: Ref<HTMLElement | undefined>, enabled:
   function zoomTo(zoom: number, anchor = { x: size.width / 2, y: size.height / 2 }) {
     const next = Math.max(1, Math.min(4, zoom))
     const ratio = next / camera.zoom
-    camera.x = anchor.x - (anchor.x - camera.x) * ratio
-    camera.y = anchor.y - (anchor.y - camera.y) * ratio
+    const x = anchor.x - (size.width - size.contentWidth) / 2
+    const y = anchor.y - (size.height - size.contentHeight) / 2
+    camera.x = x - (x - camera.x) * ratio
+    camera.y = y - (y - camera.y) * ratio
     camera.zoom = next
     constrain()
   }
@@ -158,13 +167,14 @@ export function useGardenCamera(viewport: Ref<HTMLElement | undefined>, enabled:
     event.preventDefault()
   }
 
-  function reveal(x: number, y: number) {
-    const screenX = x * size.width * camera.zoom + camera.x
-    const screenY = y * size.height * camera.zoom + camera.y
-    const padding = Math.min(72, size.width / 4, size.height / 4)
+  function reveal(x: number, y: number, halfWidth = 0, halfHeight = 0) {
+    const screenX = (size.width - size.contentWidth) / 2 + x * size.contentWidth * camera.zoom + camera.x
+    const screenY = (size.height - size.contentHeight) / 2 + y * size.contentHeight * camera.zoom + camera.y
+    const paddingX = Math.min(size.width / 2 - 4, Math.max(72, halfWidth * size.contentWidth * camera.zoom + 14))
+    const paddingY = Math.min(size.height / 2 - 4, Math.max(72, halfHeight * size.contentHeight * camera.zoom + 14))
     pan(
-      screenX < padding ? padding - screenX : screenX > size.width - padding ? size.width - padding - screenX : 0,
-      screenY < padding ? padding - screenY : screenY > size.height - padding ? size.height - padding - screenY : 0
+      screenX < paddingX ? paddingX - screenX : screenX > size.width - paddingX ? size.width - paddingX - screenX : 0,
+      screenY < paddingY ? paddingY - screenY : screenY > size.height - paddingY ? size.height - paddingY - screenY : 0
     )
   }
 

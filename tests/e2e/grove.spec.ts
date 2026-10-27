@@ -1,3 +1,4 @@
+import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
@@ -15,14 +16,14 @@ test('the detailed grove opens from its preview and every monument remains reach
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.goto('/ru/gardens')
+  await visitLocale(page, '/gardens', 'ru')
   const grove = page.getByTestId('garden-choice-grove')
   await expect(grove).toBeVisible()
   await clearPreview(page)
   await page.locator('canvas').screenshot({ path: testInfo.outputPath('grove-garden-selection.png') })
   if (isMobile) await grove.tap()
   else await grove.click()
-  await expect(page).toHaveURL(/\/ru\/gardens\?garden=grove$/)
+  await expect(page).toHaveURL(/\/gardens\?garden=grove$/)
   const scene = page.locator('.canvas-wrapper')
   const canvas = page.locator('canvas')
   await expect(scene).toHaveAttribute('data-state', 'ready')
@@ -57,7 +58,7 @@ test('grove leaves pause across hill visits, rotation keeps places clear and a g
   page.on('pageerror', error => errors.push(error.message))
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await page.route('**/api/auth/get-session', route => route.fulfill({ json: null }))
-  await page.goto('/en/gardens?garden=grove')
+  await visitLocale(page, '/gardens?garden=grove', 'en')
   const scene = page.locator('.canvas-wrapper')
   const canvas = page.locator('canvas')
   await expect(scene).toHaveAttribute('data-state', 'ready')
@@ -104,7 +105,7 @@ test('grove leaves pause across hill visits, rotation keeps places clear and a g
   await empty.focus()
   await expect(empty).toBeInViewport()
   await page.keyboard.press('Enter')
-  await expect(page).toHaveURL(/\/en\/login\?redirect=/)
-  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/en/gardens?garden=grove&create=3')
+  await expect(page).toHaveURL(/\/login\?redirect=/)
+  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/gardens?garden=grove&create=3')
   expect(errors).toEqual([])
 })

@@ -1,7 +1,7 @@
 import { Graphics } from 'pixi.js'
 import type { Container } from 'pixi.js'
 import type { GardenId } from '../data/demoGardens'
-import { getMemorialLayout } from '../data/demoMemorials'
+import { getHillWindLayout } from '../data/hillLife'
 import { drawGrassTuft, drawLeaf } from './gardenDecor'
 import { createLakeAmbience } from './lakeAmbience'
 import { createMeadowAmbience } from './meadowAmbience'
@@ -27,27 +27,15 @@ function fallingLeaves(parent: Container, width: number, height: number) {
 }
 
 function windblownGrass(parent: Container, width: number, height: number) {
-  const { rows, cellH } = getMemorialLayout(width, height, 'hill')
-  const columns = width < 800 ? 3 : 4
   const tufts: { grass: Graphics, phase: number }[] = []
-  function tuft(x: number, y: number, index: number) {
+  function tuft(x: number, y: number, size: number, index: number) {
     const grass = new Graphics()
-    const bladeHeight = 20 + index % 4 * 3
-    drawGrassTuft(grass, 0, 0, bladeHeight, index)
+    drawGrassTuft(grass, 0, 0, size, index)
     grass.position.set(x, y)
     parent.addChild(grass)
     tufts.push({ grass, phase: x / width * 3 + y / height })
   }
-  // Terrace rims and outer edges leave stones, names and steps clear.
-  for (let row = 0; row < rows; row++) {
-    for (let column = 1; column < columns; column++) {
-      const x = 70 + column * (width - 140) / columns
-      const y = 78 + (row + 0.5) * cellH + 72 - 15 + 30 * x / width
-      tuft(x, y, row * 5 + column)
-    }
-  }
-  for (let index = 0; index < 6; index++) tuft(index % 2 ? 30 : width - 30, 105 + index * (height - 190) / 5, index)
-  for (let index = 0; index < 7; index++) tuft(90 + index * (width - 180) / 6, height - 27, index)
+  for (const plant of getHillWindLayout(width, height)) tuft(plant.x, plant.y, plant.size, plant.seed)
   return (time: number) => {
     for (const { grass, phase } of tufts) {
       // Shear around the roots: the blades bend while their bases stay planted.

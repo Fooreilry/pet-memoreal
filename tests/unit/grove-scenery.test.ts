@@ -9,7 +9,7 @@ import { createGardenLife } from '../../app/utils/gardenLife'
 
 type Rect = { left: number, right: number, top: number, bottom: number }
 type Layout = ReturnType<typeof getGroveSceneryLayout>
-const fullSizes = [[1000, 650], [1200, 900], [640, 1340], [640, 840], [1900, 650]] as const
+const fullSizes = [[1200, 1000]] as const // The garden world is fixed; viewport changes only move the camera.
 const previewSizes = [[451, 276], [271, 371], [271, 608]] as const
 
 function propBounds(layout: Layout): Rect[] {
@@ -33,7 +33,7 @@ function bounds(graphic: Graphics): Rect {
   return { left: graphic.bounds.minX, right: graphic.bounds.maxX, top: graphic.bounds.minY, bottom: graphic.bounds.maxY }
 }
 
-test('grove layouts remain deterministic, populated and bounded at desktop and mobile world sizes', () => {
+test('grove layouts remain deterministic, populated and bounded in the fixed garden world', () => {
   for (const [width, height] of fullSizes) {
     const layout = getGroveSceneryLayout(width, height)
     assert.deepEqual(getGroveSceneryLayout(width, height), layout)
@@ -52,8 +52,8 @@ test('grove decorations reserve every memorial and its name, including the unocc
     assert.equal(places.length, 16)
     for (const prop of propBounds(getGroveSceneryLayout(width, height))) {
       for (const place of places) {
-        const overlap = prop.left < place.x + 65 && prop.right > place.x - 65
-          && prop.top < place.y + 65 && prop.bottom > place.y - 52
+        const overlap = prop.left < place.x + 70 && prop.right > place.x - 70
+          && prop.top < place.y + 70 && prop.bottom > place.y - 55
         assert.equal(overlap, false, `scenery obscures place ${place.place} at ${width}×${height}`)
       }
     }
@@ -97,7 +97,7 @@ test('full and overview grove drawing stays static, repeatable and within a boun
 })
 
 test('common trees, shrubs, grass and rotated leaves fit the clearance bounds used by their placement', () => {
-  for (const size of [11, 16, 22, 30]) {
+  for (const size of [11, 16, 22, 30, 38]) {
     for (const [draw, expected] of [
       [(g: Graphics) => drawWoodlandTree(g, 0, 0, size, 3), { left: -size * 1.5, right: size * 1.5, top: -size * 1.5, bottom: size * 1.4 }],
       [(g: Graphics) => drawShrub(g, { x: 0, y: 0, size, seed: 3 }), { left: -size * 1.4, right: size * 1.4, top: -size * 1.5, bottom: size * 0.55 }],
@@ -128,7 +128,7 @@ test('falling leaves and hill grass animate without replacing children or rebuil
   for (const garden of ['grove', 'hill'] as const) {
     const parent = new Container()
     try {
-      const update = createGardenLife(parent, garden, 1000, 650)
+      const update = createGardenLife(parent, garden, 1200, 1000)
       assert.ok(update)
       const children = [...parent.children] as Graphics[]
       assert.ok(children.length > 0 && children.length <= 40)

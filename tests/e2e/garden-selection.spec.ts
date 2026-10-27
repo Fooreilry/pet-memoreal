@@ -1,3 +1,4 @@
+import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 
 const gardens = ['meadow', 'lake', 'grove', 'hill'] as const
@@ -11,7 +12,7 @@ for (const locale of ['ru', 'en']) {
       requests.push(route.request().url())
       return route.fulfill({ json: [] })
     })
-    await page.goto(`/${locale}/gardens`)
+    await visitLocale(page, `/gardens`, locale)
     const title = page.getByRole('heading', { level: 1 })
     const overviewTitle = locale === 'ru' ? 'Четыре тихих сада' : 'Four quiet gardens'
     await expect(title).toHaveText(overviewTitle)
@@ -38,7 +39,7 @@ for (const locale of ['ru', 'en']) {
     const lake = page.getByTestId('garden-choice-lake')
     if (testInfo.project.name === 'mobile') await lake.tap()
     else await lake.click()
-    await expect(page).toHaveURL(new RegExp(`/${locale}/gardens\\?garden=lake$`))
+    await expect(page).toHaveURL(new RegExp(`/gardens\\?garden=lake$`))
     await expect(title).toHaveText(locale === 'ru' ? 'Озеро' : 'Lake')
     await expect(title).toBeFocused()
     await expect(header).toBeVisible()
@@ -51,13 +52,13 @@ for (const locale of ['ru', 'en']) {
     await grove.focus()
     await expect(grove).toBeFocused()
     await page.keyboard.press('Enter')
-    await expect(page).toHaveURL(new RegExp(`/${locale}/gardens\\?garden=grove$`))
+    await expect(page).toHaveURL(new RegExp(`/gardens\\?garden=grove$`))
     await page.reload()
     await expect(title).toHaveText(locale === 'ru' ? 'Роща' : 'Grove')
     await expect(page.locator('.memorial-hit')).toHaveCount(16)
     await page.getByTestId('garden-switch').click()
     await page.getByTestId('garden-overview').click()
-    await expect(page).toHaveURL(new RegExp(`/${locale}/gardens$`))
+    await expect(page).toHaveURL(new RegExp(`/gardens$`))
     await expect(title).toHaveText(overviewTitle)
     await expect(title).toBeFocused()
     await expect(page.getByTestId('garden-choices')).toBeVisible()
@@ -68,12 +69,12 @@ for (const locale of ['ru', 'en']) {
   test(`${locale}: each overview tile opens its own garden, while direct memorial links bypass selection`, async ({ page }) => {
     await page.route('**/api/gardens/*/memorials', route => route.fulfill({ json: [] }))
     for (const garden of gardens) {
-      await page.goto(`/${locale}/gardens`)
+      await visitLocale(page, `/gardens`, locale)
       await page.getByTestId(`garden-choice-${garden}`).click()
-      await expect(page).toHaveURL(new RegExp(`/${locale}/gardens\\?garden=${garden}$`))
+      await expect(page).toHaveURL(new RegExp(`/gardens\\?garden=${garden}$`))
       await expect(page.getByTestId(`memorial-${garden}-1`)).toBeVisible()
     }
-    await page.goto(`/${locale}/gardens?garden=lake&memorial=lake-1`)
+    await visitLocale(page, `/gardens?garden=lake&memorial=lake-1`, locale)
     await expect(page.getByRole('dialog')).toBeVisible()
     await expect(page.getByTestId('garden-choices')).toHaveCount(0)
   })

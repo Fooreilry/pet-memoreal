@@ -5,7 +5,6 @@ import { demoGardens } from '../data/demoGardens'
 definePageMeta({ middleware: 'landing', colorMode: 'light' })
 const { t, locale } = useI18n()
 const localePath = useLocalePath()
-const switchLocalePath = useSwitchLocalePath()
 const showBackToTop = ref(false)
 const gardenIcons = ['i-lucide-flower-2', 'i-lucide-waves', 'i-lucide-trees', 'i-lucide-mountain']
 
@@ -42,7 +41,7 @@ useSeoMeta({ title: () => t('meta.title'), description: () => t('meta.descriptio
         <a href="#questions">{{ t('nav.questions') }}</a>
       </nav>
       <div class="header-actions">
-        <NuxtLink :to="switchLocalePath(locale === 'ru' ? 'en' : 'ru')" class="language-link" :aria-label="t('nav.language')" :lang="locale === 'ru' ? 'en' : 'ru'">{{ locale === 'ru' ? 'EN' : 'RU' }}</NuxtLink>
+        <LanguageSwitch />
         <NuxtLink :to="localePath('/login')" no-prefetch class="auth-header-login">{{ t('auth.actions.login') }}</NuxtLink>
         <NuxtLink :to="localePath('/register')" no-prefetch class="landing-button header-cta">{{ t('auth.createAccount') }}<UIcon name="i-lucide-arrow-up-right" aria-hidden="true" /></NuxtLink>
       </div>

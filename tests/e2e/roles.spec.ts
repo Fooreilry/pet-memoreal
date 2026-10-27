@@ -1,3 +1,4 @@
+import { visitLocale } from './helpers/locale'
 import { randomUUID } from 'node:crypto'
 import pg from 'pg'
 import { hashPassword } from 'better-auth/crypto'
@@ -76,10 +77,10 @@ for (const role of ['user', 'admin'] as const) {
       const me = await page.request.get('/api/me')
       expect(me.headers()['cache-control']).toContain('no-store')
       expect(await me.json()).toMatchObject({ id, role, email, emailVerified: true })
-      await page.goto('/ru/account')
+      await visitLocale(page, '/account', 'ru')
       await expect(page.getByTestId('profile-name')).toHaveText(name)
       await page.locator('.account-header .brand').click()
-      await expect(page).toHaveURL(/\/ru\/gardens$/)
+      await expect(page).toHaveURL(/\/gardens$/)
       await expect(page.locator('.landing')).toHaveCount(0)
       await expect(page.getByTestId('garden-choices').getByRole('button')).toHaveCount(4)
       const profile = await page.request.post('/api/auth/update-user', { headers: { origin }, data: { name, surname: 'Visitor' } })

@@ -3,6 +3,7 @@ import test from 'node:test'
 import { Container, Graphics } from 'pixi.js'
 import { getLakeSceneryLayout } from '../../app/data/lakeScenery'
 import { getMemorialLayout } from '../../app/data/demoMemorials'
+import { getGardenLayout } from '../../app/data/gardenLayout'
 import { getGardenPlantLayout, plantKinds } from '../../app/data/gardenPlants'
 import { drawGardenPlant } from '../../app/utils/gardenBotany'
 import { drawLakeLandscape } from '../../app/utils/lakeScenery'
@@ -11,7 +12,7 @@ import { gardenIds } from '../../shared/gardens'
 import type { LakePond } from '../../app/data/lakeScenery'
 
 type Rect = { left: number, right: number, top: number, bottom: number }
-const fullSizes = [[1000, 650], [640, 840], [640, 1340], [1900, 650]] as const
+const fullSizes = [[1200, 1000]] as const // The garden world is fixed; viewport changes only move the camera.
 const previewSizes = [[451, 276], [271, 371], [271, 608]] as const
 
 function intersects(a: Rect, b: Rect) {
@@ -31,7 +32,7 @@ function waterContains(rect: Rect, pond: LakePond) {
 
 function protectedPlaces(width: number, height: number) {
   return getMemorialLayout(width, height, 'lake').places.map(place => ({
-    left: place.x - 65, right: place.x + 65, top: place.y - 52, bottom: place.y + 65
+    left: place.x - 70, right: place.x + 70, top: place.y - 55, bottom: place.y + 70
   }))
 }
 
@@ -46,6 +47,7 @@ test('lake water and banks are deterministic and leave all ten memorial places a
     assert.deepEqual(getLakeSceneryLayout(width, height), layout)
     assert.equal(getMemorialLayout(width, height, 'lake').places.length, 10)
     assert.equal(layout.ponds.length, 2)
+    assert.deepEqual(layout.ponds, getGardenLayout(width, height, 'lake').features.ponds, 'water must follow the shared map plan')
     assert.ok(layout.lilies.length > 0 && layout.lilies.length <= 8)
     assert.ok(layout.reeds.length > 0 && layout.reeds.length <= 18)
     assert.ok(layout.shrubs.length <= 12 && layout.trees.length <= 12 && layout.lanterns.length <= 4)
@@ -58,15 +60,15 @@ test('lake water and banks are deterministic and leave all ten memorial places a
   }
 })
 
-test('the former right-hand pool is replaced by sparse low greenery and pebbles', () => {
+test('planned broad water bodies retain sparse, collision-free shoreline greenery and pebbles', () => {
   for (const [width, height] of fullSizes) {
     const layout = getLakeSceneryLayout(width, height)
     assert.ok(layout.ponds.every(pond => pond.rx > pond.ry), 'the tall narrow right pool must be absent')
-    const bankShrubs = layout.shrubs.filter(plant => plant.x > width - 65)
-    const bankReeds = layout.reeds.filter(plant => plant.x > width - 65)
-    assert.equal(bankShrubs.length, 3)
-    assert.equal(bankReeds.length, 3)
-    assert.equal(layout.pebbles.length, 6)
+    const bankShrubs = layout.shrubs
+    const bankReeds = layout.reeds
+    assert.ok(bankShrubs.length > 0 && bankShrubs.length <= 10)
+    assert.ok(bankReeds.length > 0 && bankReeds.length <= 12)
+    assert.ok(layout.pebbles.length > 0 && layout.pebbles.length <= 14)
     const footprints = [
       ...bankShrubs.map(p => ({ left: p.x - p.size * 1.4, right: p.x + p.size * 1.4, top: p.y - p.size * 1.5, bottom: p.y + p.size * 0.55 })),
       ...bankReeds.map(p => ({ left: p.x - p.size * 1.3, right: p.x + p.size * 1.3, top: p.y - p.size * 1.6, bottom: p.y + p.size * 0.45 })),
@@ -183,7 +185,7 @@ test('accent vegetation stays sparse, deterministic and clear of every garden me
           inside(footprint, width, preview ? height - 99 : height)
           if (!preview) {
             for (const place of getMemorialLayout(width, height, garden).places) {
-              assert.equal(intersects(footprint, { left: place.x - 65, right: place.x + 65, top: place.y - 52, bottom: place.y + 65 }), false)
+              assert.equal(intersects(footprint, { left: place.x - 70, right: place.x + 70, top: place.y - 55, bottom: place.y + 70 }), false)
             }
           }
         }
@@ -194,7 +196,7 @@ test('accent vegetation stays sparse, deterministic and clear of every garden me
 
 test('fern, sedge and flowering sprig geometry fits its shared placement footprint', () => {
   for (const kind of plantKinds) {
-    for (const size of [9, 11, 16, 17]) {
+    for (const size of [9, 11, 16, 17, 21]) {
       const graphic = new Graphics()
       const context = graphic.context
       try {

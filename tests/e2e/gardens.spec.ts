@@ -1,5 +1,13 @@
+import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
+
+async function revealTarget(target: Locator) {
+  // Focus also reveals a place after another interaction has moved the camera.
+  await target.evaluate(element => { if (element instanceof HTMLElement) element.blur() })
+  await target.focus()
+  await expect(target).toBeInViewport()
+}
 
 async function chooseGarden(page: Page, id: string) {
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
@@ -23,7 +31,7 @@ test('free places wait for a successful load and keyboard selection keeps the ch
   let unavailable = true
   await page.route('**/api/gardens/meadow/memorials', route => route.fulfill(unavailable ? { status: 503, json: { statusMessage: 'Unavailable' } } : { json: [] }))
   await page.route('**/api/auth/get-session', route => route.fulfill({ json: null }))
-  await page.goto('/en/gardens?garden=meadow')
+  await visitLocale(page, '/gardens?garden=meadow', 'en')
   await expect(page.getByRole('alert')).toContainText('adding a memorial is unavailable')
   const empty = page.getByTestId('empty-meadow-3')
   await expect(empty).toBeDisabled()
@@ -32,15 +40,15 @@ test('free places wait for a successful load and keyboard selection keeps the ch
   await expect(empty).toBeEnabled()
   await empty.focus()
   await page.keyboard.press('Enter')
-  await expect(page).toHaveURL(/\/en\/login\?redirect=/)
-  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/en/gardens?garden=meadow&create=3')
+  await expect(page).toHaveURL(/\/login\?redirect=/)
+  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/gardens?garden=meadow&create=3')
 })
 
 for (const locale of ['ru', 'en']) {
   test(`${locale}: camera buttons, keyboard, focused memorials and resize`, async ({ page }, testInfo) => {
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
-    await page.goto(`/${locale}/gardens?garden=lake`)
+    await visitLocale(page, `/gardens?garden=lake`, locale)
     const view = page.locator('.canvas-wrapper')
     await expect(view).toHaveAttribute('data-state', 'ready')
     const zoomIn = page.getByTestId('garden-zoom-in')
@@ -85,48 +93,88 @@ for (const locale of ['ru', 'en']) {
 
 test('wheel zoom stays at the pointer, dragging a stone pans without opening it, and bounds hold', async ({ page, isMobile }) => {
   test.skip(isMobile, 'Mouse and wheel scenario')
-  await page.goto('/en/gardens?garden=lake')
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await visitLocale(page, '/gardens?garden=lake', 'en')
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
   const view = page.locator('.canvas-wrapper')
   await view.scrollIntoViewIfNeeded()
-  const stone = page.getByTestId('memorial-lake-1')
+  const scene = (await view.boundingBox())!
+  const candidates = await page.locator('.memorial-hit[data-monument-kind]').evaluateAll(elements => elements.map(element => {
+    const box = element.getBoundingClientRect()
+    return { id: element.getAttribute('data-testid')!, x: box.x + box.width / 2, y: box.y + box.height / 2 }
+  }))
+  candidates.sort((a, b) => Math.hypot(a.x - scene.x - scene.width / 2, a.y - scene.y - scene.height / 2)
+    - Math.hypot(b.x - scene.x - scene.width / 2, b.y - scene.y - scene.height / 2))
+  const stone = page.getByTestId(candidates[0]!.id)
+  const place = candidates[0]!.id.split('-').at(-1)!
+  await revealTarget(stone)
   const initial = (await stone.boundingBox())!
-  const anchor = { x: initial.x + initial.width / 2, y: initial.y + initial.height / 2 }
+  // WheelEvent client coordinates are integer CSS pixels, unlike DOM bounds.
+  const anchor = { x: Math.round(initial.x + initial.width / 2), y: Math.round(initial.y + initial.height / 2) }
+  const start = await view.evaluate(element => ({ x: Number((element as HTMLElement).dataset.cameraX), y: Number((element as HTMLElement).dataset.cameraY), zoom: Number((element as HTMLElement).dataset.zoom) }))
   await page.mouse.move(anchor.x, anchor.y)
   const scrollY = await page.evaluate(() => window.scrollY)
   await page.mouse.wheel(0, -160)
   await expect.poll(async () => Number(await view.getAttribute('data-zoom'))).toBeGreaterThan(1.5)
+  await expect.poll(async () => (await stone.boundingBox())!.width).toBeGreaterThan(initial.width * 1.5)
   const zoomed = (await stone.boundingBox())!
   expect(zoomed.width).toBeGreaterThan(initial.width * 1.5)
-  expect(Math.abs(zoomed.x + zoomed.width / 2 - anchor.x)).toBeLessThan(2)
-  expect(Math.abs(zoomed.y + zoomed.height / 2 - anchor.y)).toBeLessThan(2)
+  const projection = await view.evaluate(element => {
+    const node = element as HTMLElement
+    const scale = Number(node.dataset.projectionScale)
+    return { zoom: Number(node.dataset.zoom), width: Number(node.dataset.worldWidth) * scale, height: Number(node.dataset.worldHeight) * scale,
+      offsetX: Number(node.dataset.projectionOffsetX), offsetY: Number(node.dataset.projectionOffsetY) }
+  })
+  // data-zoom is rounded for the HUD; use the rendered transform for subpixel geometry checks.
+  projection.zoom = await page.locator('.memorial-controls').evaluate(element => new DOMMatrix(getComputedStyle(element).transform).a)
+  const ratio = projection.zoom / start.zoom
+  const pointer = { x: anchor.x - scene.x - projection.offsetX, y: anchor.y - scene.y - projection.offsetY }
+  const desired = { x: pointer.x - (pointer.x - start.x) * ratio, y: pointer.y - (pointer.y - start.y) * ratio }
+  const constrain = (value: number, content: number, viewport: number, offset: number) => content * projection.zoom <= viewport
+    ? content * (1 - projection.zoom) / 2
+    : Math.max(viewport - offset - content * projection.zoom, Math.min(-offset, value))
+  const expected = { x: constrain(desired.x, projection.width, scene.width, projection.offsetX), y: constrain(desired.y, projection.height, scene.height, projection.offsetY) }
+  // An interior anchor stays fixed; near an edge the camera must honor its bounds.
+  expect(Math.abs(zoomed.x + zoomed.width / 2 - anchor.x - (expected.x - desired.x))).toBeLessThan(2)
+  expect(Math.abs(zoomed.y + zoomed.height / 2 - anchor.y - (expected.y - desired.y))).toBeLessThan(2)
+  expect(Number(await view.getAttribute('data-camera-x'))).toBeCloseTo(expected.x, 0)
+  expect(Number(await view.getAttribute('data-camera-y'))).toBeCloseTo(expected.y, 0)
   expect(await page.evaluate(() => window.scrollY)).toBe(scrollY)
+  expect(projection.width * projection.zoom).toBeGreaterThan(scene.width)
   const previousX = Number(await view.getAttribute('data-camera-x'))
+  const leftLimit = scene.width - projection.offsetX - projection.width * projection.zoom
+  const rightLimit = -projection.offsetX
+  const drag = previousX - leftLimit >= rightLimit - previousX ? -110 : 110
   await page.mouse.down()
-  await page.mouse.move(anchor.x - 110, anchor.y - 70, { steps: 10 })
+  await page.mouse.move(anchor.x + drag, anchor.y - 70, { steps: 10 })
   await page.mouse.up()
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  expect(Number(await view.getAttribute('data-camera-x'))).toBeLessThan(previousX - 80)
+  expect((Number(await view.getAttribute('data-camera-x')) - previousX) * Math.sign(drag)).toBeGreaterThan(80)
   const moved = (await stone.boundingBox())!
+  // This is a new deliberate click after the drag's synthetic-click guard expires.
+  await page.waitForTimeout(400)
   await page.mouse.click(moved.x + moved.width / 2, moved.y + moved.height / 2)
-  await expect(page.getByRole('dialog')).toContainText('Place 1')
+  await expect(page.getByRole('dialog')).toContainText(`Place ${place}`)
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(stone).toBeFocused()
   await view.focus()
-  for (let i = 0; i < 30; i++) await page.keyboard.press('Shift+ArrowRight')
-  const bounds = (await view.boundingBox())!
-  const zoom = Number(await view.getAttribute('data-zoom'))
-  expect(Number(await view.getAttribute('data-camera-x'))).toBeCloseTo(bounds.width * (1 - zoom), 0)
-  for (let i = 0; i < 30; i++) await page.keyboard.press('Shift+ArrowLeft')
-  await expect(view).toHaveAttribute('data-camera-x', '0.00')
+  const viewportWidth = await view.evaluate(element => element.clientWidth)
+  const contentWidth = await page.locator('.memorial-controls').evaluate(element => parseFloat(getComputedStyle(element).width))
+  const offsetX = (viewportWidth - contentWidth) / 2
+  const zoom = projection.zoom
+  const stepsToEdge = Math.ceil((contentWidth * zoom - viewportWidth) / 100) + 2
+  for (let i = 0; i < stepsToEdge; i++) await page.keyboard.press('Shift+ArrowRight')
+  expect(Number(await view.getAttribute('data-camera-x'))).toBeCloseTo(viewportWidth - offsetX - contentWidth * zoom, 0)
+  for (let i = 0; i < stepsToEdge; i++) await page.keyboard.press('Shift+ArrowLeft')
+  expect(Number(await view.getAttribute('data-camera-x'))).toBeCloseTo(-offsetX, 0)
   await page.getByTestId('garden-camera-reset').click()
   await expect(view).toHaveAttribute('data-zoom', '1.000')
 })
 
 test('phone pinch, one-finger drag, cancellation and a tap on the transformed stone', async ({ page, context, isMobile }, testInfo) => {
   test.skip(!isMobile, 'Real touch input on the phone viewport')
-  await page.goto('/en/gardens?garden=grove')
+  await visitLocale(page, '/gardens?garden=grove', 'en')
   const view = page.locator('.canvas-wrapper')
   await expect(view).toHaveAttribute('data-state', 'ready')
   await view.scrollIntoViewIfNeeded()
@@ -143,7 +191,7 @@ test('phone pinch, one-finger drag, cancellation and a tap on the transformed st
   expect(await page.evaluate(() => window.scrollY)).toBe(scroll)
   const target = page.getByTestId('memorial-grove-8')
   // Recenter through keyboard focus, then exercise actual touch events on that stone.
-  await target.focus()
+  await revealTarget(target)
   const marker = (await target.boundingBox())!
   const sx = marker.x + marker.width / 2
   const sy = marker.y + marker.height / 2
@@ -157,6 +205,8 @@ test('phone pinch, one-finger drag, cancellation and a tap on the transformed st
   await input.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] })
   await input.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x - 15, y, id: 1 }] })
   await input.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] })
+  await revealTarget(target)
+  await page.waitForTimeout(400)
   await target.tap()
   await expect(page.getByRole('dialog')).toContainText('Place 8')
   await page.keyboard.press('Escape')
@@ -166,9 +216,9 @@ test('phone pinch, one-finger drag, cancellation and a tap on the transformed st
   await input.detach()
 })
 
-test('distinct landscapes preserve reachable, separate memorial targets at both layout sizes', async ({ page }, testInfo) => {
+test('distinct landscapes preserve separate targets and reveal every fixed-world place at both viewport sizes', async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.goto('/ru/gardens')
+  await visitLocale(page, '/gardens', 'ru')
   for (const width of [1200, 390]) {
     await page.setViewportSize({ width, height: 900 })
     for (const garden of ['meadow', 'grove', 'hill']) {
@@ -177,19 +227,15 @@ test('distinct landscapes preserve reachable, separate memorial targets at both 
       const targets = page.locator('.memorial-hit')
       const count = garden === 'meadow' ? 12 : garden === 'grove' ? 16 : 14
       await expect(targets).toHaveCount(count)
+      await expect(page.locator('.memorial-empty:disabled')).toHaveCount(0)
       await page.locator('canvas').scrollIntoViewIfNeeded()
       const positions = await targets.evaluateAll(elements => elements.map(element => {
         const { x, y, width, height } = element.getBoundingClientRect()
         return { x, y, width, height }
       }))
-      const canvas = (await page.locator('canvas').boundingBox())!
       for (const [index, position] of positions.entries()) {
         expect(position.width).toBeGreaterThanOrEqual(44)
         expect(position.height).toBeGreaterThanOrEqual(44)
-        expect(position.x).toBeGreaterThanOrEqual(canvas.x)
-        expect(position.y).toBeGreaterThanOrEqual(canvas.y)
-        expect(position.x + position.width).toBeLessThanOrEqual(canvas.x + canvas.width)
-        expect(position.y + position.height).toBeLessThanOrEqual(canvas.y + canvas.height)
         for (const other of positions.slice(index + 1)) {
           const overlap = position.x < other.x + other.width && position.x + position.width > other.x && position.y < other.y + other.height && position.y + position.height > other.y
           expect(overlap).toBe(false)
@@ -198,7 +244,12 @@ test('distinct landscapes preserve reachable, separate memorial targets at both 
       await page.locator('canvas').screenshot({ path: testInfo.outputPath(`${garden}-${width}.png`) })
       await expect(page.locator('.memorial-empty')).toHaveCount(count - 4)
       await expect(page.locator('.memorial-hit:not(.memorial-empty)')).toHaveCount(4)
+      for (const target of await targets.all()) {
+        await revealTarget(target)
+        await expect(target).toBeInViewport({ ratio: 0.99 })
+      }
       for (const index of [0, Math.floor(count / 2) - 1, count - 1]) {
+        await revealTarget(targets.nth(index))
         await targets.nth(index).click()
         const dialog = page.getByRole('dialog')
         await expect(dialog.locator('.memorial-location')).toContainText(`Место ${index + 1}`)
@@ -214,8 +265,9 @@ for (const locale of ['ru', 'en']) {
   test(`${locale}: story card keeps long memories readable and controls reachable in a short viewport`, async ({ page }, testInfo) => {
     const ru = locale === 'ru'
     await page.emulateMedia({ reducedMotion: 'reduce' })
-    await page.goto(`/${locale}/gardens?garden=grove`)
+    await visitLocale(page, `/gardens?garden=grove`, locale)
     const stone = page.getByTestId('memorial-grove-2')
+    await revealTarget(stone)
     await stone.click()
     const dialog = page.getByRole('dialog')
     await expect(dialog).toHaveAccessibleName(ru ? 'Луна' : 'Luna')
@@ -258,7 +310,7 @@ for (const locale of ['ru', 'en']) {
 
 test('ambient motion can pause, stays paused across gardens and respects device preferences', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' })
-  await page.goto('/en/gardens?garden=grove')
+  await visitLocale(page, '/gardens?garden=grove', 'en')
   const scene = page.locator('.canvas-wrapper')
   const canvas = page.locator('canvas')
   await expect(scene).toHaveAttribute('data-state', 'ready')
@@ -276,7 +328,9 @@ test('ambient motion can pause, stays paused across gardens and respects device 
   expect(Buffer.compare(paused, await canvas.screenshot())).toBe(0)
   await chooseGarden(page, 'lake')
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-  await page.getByTestId('memorial-lake-1').click()
+  const stone = page.getByTestId('memorial-lake-1')
+  await revealTarget(stone)
+  await stone.click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.keyboard.press('Escape')
   await page.emulateMedia({ reducedMotion: 'reduce' })
@@ -292,7 +346,7 @@ test('butterflies, drifting leaves and grass stay calm when paused or motion is 
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   await page.emulateMedia({ reducedMotion: 'no-preference' })
-  await page.goto('/en/gardens?garden=meadow')
+  await visitLocale(page, '/gardens?garden=meadow', 'en')
   const scene = page.locator('.canvas-wrapper')
   const canvas = page.locator('canvas')
   const effects = [
@@ -345,11 +399,15 @@ for (const locale of ['ru', 'en']) {
   test(`${locale}: memorial hover, full story, closing and keyboard access`, async ({ page, isMobile }, testInfo) => {
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
-    await page.goto(`/${locale}/gardens?garden=lake`)
+    await visitLocale(page, `/gardens?garden=lake`, locale)
     const first = page.getByTestId('memorial-lake-1')
     const second = page.getByTestId('memorial-lake-2')
     await expect(page.locator('.memorial-hit')).toHaveCount(10)
-    await first.scrollIntoViewIfNeeded()
+    await revealTarget(first)
+    // After revealing, exercise real hover/touch rather than a focus-opened tooltip.
+    await first.evaluate(element => (element as HTMLElement).blur())
+    await page.mouse.move(0, 0)
+    await expect(page.getByTestId('memorial-summary')).toHaveCount(0)
     const box = (await first.boundingBox())!
     // Interact at the actual stone position, including a real touch event on mobile.
     if (isMobile) {
@@ -396,10 +454,11 @@ for (const locale of ['ru', 'en']) {
 }
 
 test('memorial hit targets follow resize and old details disappear on garden navigation', async ({ page }) => {
-  await page.goto('/ru/gardens?garden=lake')
+  await visitLocale(page, '/gardens?garden=lake', 'ru')
   await chooseGarden(page, 'hill')
   await page.setViewportSize({ width: 390, height: 844 })
   const last = page.getByTestId('memorial-hill-14')
+  await revealTarget(last)
   await last.click()
   const dialog = page.getByRole('dialog')
   await expect(dialog).toContainText('Место 14')
@@ -425,8 +484,8 @@ for (const locale of ['ru', 'en']) {
   test(`${locale}: enter the overview, switch all four gardens inside the scene and return home`, async ({ page }, testInfo) => {
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
-    await page.goto(`/${locale}/gardens`)
-    await expect(page).toHaveURL(new RegExp(`/${locale}/gardens$`))
+    await visitLocale(page, `/gardens`, locale)
+    await expect(page).toHaveURL(new RegExp(`/gardens$`))
     const canvas = page.locator('canvas')
     await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
     await expect(canvas).toHaveCount(1)
@@ -441,14 +500,14 @@ for (const locale of ['ru', 'en']) {
     }
     await page.getByTestId('garden-switch').click()
     await page.getByTestId('garden-home').click()
-    await expect(page).toHaveURL(new RegExp(`/${locale}$`))
+    await expect(page).toHaveURL(new RegExp(`/$`))
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     expect(errors).toEqual([])
   })
 }
 
 test('keyboard selection, direct links, history, locale switch and responsive canvas', async ({ page }) => {
-  await page.goto('/ru/gardens?garden=invalid')
+  await visitLocale(page, '/gardens?garden=invalid', 'ru')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Четыре тихих сада')
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
   await page.getByTestId('garden-choice-lake').focus()
@@ -465,7 +524,7 @@ test('keyboard selection, direct links, history, locale switch and responsive ca
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Озеро')
   await page.getByTestId('garden-switch').click()
   await page.getByRole('link', { name: 'Switch to English' }).click()
-  await expect(page).toHaveURL(/\/en\/gardens\?garden=lake$/)
+  await expect(page).toHaveURL(/\/gardens\?garden=lake$/)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Lake')
   await expect(page.locator('canvas')).toHaveAttribute('aria-label', /Lake garden/)
   for (const width of [768, 390]) {
@@ -480,7 +539,7 @@ test('keyboard selection, direct links, history, locale switch and responsive ca
 test('leaving and reopening the page keeps one functioning canvas', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
-  await page.goto('/en/gardens')
+  await visitLocale(page, '/gardens', 'en')
   for (let i = 0; i < 3; i++) {
     await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
     await expect(page.locator('canvas')).toHaveCount(1)
@@ -501,7 +560,7 @@ test('canvas initialization failure shows an error and can recover on retry', as
     HTMLCanvasElement.prototype.getContext = (() => null) as typeof original
     window.addEventListener('restore-canvas', () => { HTMLCanvasElement.prototype.getContext = original })
   })
-  await page.goto('/ru/gardens')
+  await visitLocale(page, '/gardens', 'ru')
   await expect(page.getByRole('alert')).toContainText('Не удалось показать сад')
   await expect(page.getByRole('alert').getByRole('button')).toBeVisible()
   await page.evaluate(() => window.dispatchEvent(new Event('restore-canvas')))

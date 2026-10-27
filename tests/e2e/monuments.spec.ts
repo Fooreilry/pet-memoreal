@@ -1,3 +1,4 @@
+import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
@@ -12,7 +13,10 @@ async function ready(page: Page) {
 async function styles(page: Page) {
   return page.locator('.memorial-hit[data-monument-kind]').evaluateAll(elements => elements.map(element => ({
     id: element.getAttribute('data-testid'),
-    kind: element.getAttribute('data-monument-kind')
+    kind: element.getAttribute('data-monument-kind'),
+    x: element.closest<HTMLElement>('.memorial-position')!.dataset.worldX,
+    y: element.closest<HTMLElement>('.memorial-position')!.dataset.worldY,
+    chunk: element.closest<HTMLElement>('.memorial-position')!.dataset.chunkId
   })))
 }
 
@@ -23,7 +27,7 @@ test('each garden has four distinct monument forms with usable stories at increa
   page.on('request', request => { if (request.resourceType() === 'image') imageRequests.push(request.url()) })
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.route('**/api/gardens/*/memorials', route => route.fulfill({ json: [] }))
-  await page.goto('/ru/gardens?garden=meadow')
+  await visitLocale(page, '/gardens?garden=meadow', 'ru')
   for (const [index, garden] of gardens.entries()) {
     if (index > 0) {
       await page.getByTestId('garden-switch').click()
@@ -52,9 +56,14 @@ test('each garden has four distinct monument forms with usable stories at increa
 
 test('monument forms stay attached to their places after resize, reload and language changes', async ({ page }) => {
   await page.route('**/api/gardens/*/memorials', route => route.fulfill({ json: [] }))
-  await page.goto('/ru/gardens?garden=grove')
+  await visitLocale(page, '/gardens?garden=grove', 'ru')
   await ready(page)
   const original = await styles(page)
+  for (const record of original) {
+    expect(Number(record.x)).toBeGreaterThan(0)
+    expect(Number(record.y)).toBeGreaterThan(0)
+    expect(record.chunk).toMatch(/^grove:v1:place-\d+$/)
+  }
   for (const size of [{ width: 1200, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(size)
     await expect.poll(() => styles(page)).toEqual(original)
@@ -63,7 +72,7 @@ test('monument forms stay attached to their places after resize, reload and lang
   await ready(page)
   expect(await styles(page)).toEqual(original)
   await page.getByRole('link', { name: 'Switch to English', exact: true }).click()
-  await expect(page).toHaveURL(/\/en\/gardens\?garden=grove$/)
+  await expect(page).toHaveURL(/\/gardens\?garden=grove$/)
   await ready(page)
   expect(await styles(page)).toEqual(original)
   await page.getByTestId('memorial-grove-16').focus()
@@ -79,7 +88,7 @@ test('a saved memorial keeps the form of its place and opens for a guest by keyb
   }
   let saved = false
   await page.route('**/api/gardens/*/memorials', route => route.fulfill({ json: saved ? [record] : [] }))
-  await page.goto('/en/gardens?garden=meadow')
+  await visitLocale(page, '/gardens?garden=meadow', 'en')
   await ready(page)
   const originalKind = await page.getByTestId('memorial-meadow-1').getAttribute('data-monument-kind')
   expect(kinds).toContain(originalKind)

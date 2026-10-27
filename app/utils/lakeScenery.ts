@@ -1,9 +1,9 @@
 import type { Graphics } from 'pixi.js'
 import { getLakeSceneryLayout } from '../data/lakeScenery'
 import type { LakeLily, LakePlant, LakePond } from '../data/lakeScenery'
-import { getMemorialLayout } from '../data/demoMemorials'
-import { drawFlowers, drawLantern, drawShrub, drawTree } from './gardenDecor'
+import { drawLantern, drawShrub, drawTree } from './gardenDecor'
 import { drawGardenPlant } from './gardenBotany'
+import { drawGardenPaths } from './gardenPaths'
 
 function waterShape(g: Graphics, x: number, y: number, rx: number, ry: number) {
   return g.moveTo(x - rx * 0.95, y)
@@ -75,33 +75,22 @@ function drawPebble(g: Graphics, { x, y, size, seed }: LakePlant) {
     .fill({ color: 0xb7bda0, alpha: 0.45 })
 }
 
-export function drawLakeLandscape(g: Graphics, width: number, height: number, preview: boolean) {
+export function drawLakeTerrain(g: Graphics, width: number, height: number, preview: boolean) {
   const decor = getLakeSceneryLayout(width, height, preview)
-  if (preview) {
-    const artHeight = height - 99
-    g.moveTo(width * 0.28, artHeight + 8).bezierCurveTo(width * 0.15, artHeight * 0.55, width * 0.42, artHeight * 0.35, width * 0.34, 8)
-      .stroke({ color: 0xa8b99a, width: 11, alpha: 0.5 })
-  } else {
-    const { rows, cellH } = getMemorialLayout(width, height, 'lake')
-    for (let row = 1; row < rows; row++) {
-      const y = 88 + row * cellH
-      g.moveTo(44, y).bezierCurveTo(width * 0.3, y - 9, width * 0.7, y + 9, width - 84, y)
-        .stroke({ color: 0x9fb69a, width: 12, alpha: 0.22 })
-      for (let index = 0; index < 12; index++) {
-        g.ellipse(58 + index * (width - 160) / 11, y + Math.sin(index) * 3, 4 + index % 2, 2).fill({ color: 0xc3c9a6, alpha: 0.35 })
-      }
-      drawLantern(g, 55, y - 5)
-    }
-  }
+  drawGardenPaths(g, width, height, 'lake', preview)
   for (const pond of decor.ponds) drawPond(g, pond)
   for (const lily of decor.lilies) drawLily(g, lily)
+}
+
+export function drawLakeDecor(g: Graphics, decor: ReturnType<typeof getLakeSceneryLayout>) {
   for (const reed of decor.reeds) drawGardenPlant(g, { ...reed, kind: 'sedge' })
   for (const pebble of decor.pebbles) drawPebble(g, pebble)
   for (const shrub of decor.shrubs) drawShrub(g, shrub)
   for (const tree of decor.trees) drawTree(g, tree.x, tree.y, tree.size, 0x5d8d72, tree.seed)
   for (const lantern of decor.lanterns) drawLantern(g, lantern.x, lantern.y)
-  if (!preview) {
-    drawFlowers(g, 38, height - 76, 0xe1dac2, 92, 4)
-    drawFlowers(g, width - 38, height - 64, 0xe1dac2, 97, 4)
-  }
+}
+
+export function drawLakeLandscape(g: Graphics, width: number, height: number, preview: boolean) {
+  drawLakeTerrain(g, width, height, preview)
+  drawLakeDecor(g, getLakeSceneryLayout(width, height, preview))
 }

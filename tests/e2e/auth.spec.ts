@@ -1,3 +1,4 @@
+import { visitLocale } from './helpers/locale'
 import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import type { APIRequestContext, Page } from '@playwright/test'
@@ -10,15 +11,15 @@ const mailpit = `http://127.0.0.1:${process.env.MAILPIT_WEB_PORT || 8025}`
 test('loopback page aliases redirect to the configured auth origin before showing the form', async ({ request }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'Server redirect is independent of viewport')
   for (const host of ['localhost:4173', '[::1]:4173']) {
-    const response = await request.get('/ru/register?redirect=%2Fru%2Fmemorials%2Fnew', { headers: { host }, maxRedirects: 0 })
+    const response = await request.get('/register?redirect=%2Fmemorials%2Fnew', { headers: { host }, maxRedirects: 0 })
     expect(response.status()).toBe(302)
-    expect(response.headers().location).toBe('http://127.0.0.1:4173/ru/register?redirect=%2Fru%2Fmemorials%2Fnew')
+    expect(response.headers().location).toBe('http://127.0.0.1:4173/register?redirect=%2Fmemorials%2Fnew')
     expect(response.headers()['cache-control']).toContain('no-store')
   }
-  const canonical = await request.get('/en/register', { maxRedirects: 0 })
+  const canonical = await request.get('/register', { maxRedirects: 0 })
   expect(canonical.status()).toBe(200)
   // The Host header cannot redirect a non-loopback site or an API request.
-  const external = await request.get('/en/register', { headers: { host: 'untrusted.example' }, maxRedirects: 0 })
+  const external = await request.get('/register', { headers: { host: 'untrusted.example' }, maxRedirects: 0 })
   expect(external.status()).toBe(200)
   const api = await request.get('/api/auth/get-session', { headers: { host: 'localhost:4173' }, maxRedirects: 0 })
   expect(api.status()).toBe(200)
@@ -48,7 +49,7 @@ async function emailLink(request: APIRequestContext, email: string, path: string
 }
 
 async function login(page: Page, copy: typeof copies[number], email: string, value = password) {
-  await page.goto(`/${copy.locale}/login`)
+  await visitLocale(page, `/login`, copy.locale)
   await page.getByLabel('Email', { exact: true }).fill(email)
   await page.getByLabel(copy.password, { exact: true }).fill(value)
   const submit = async () => {
@@ -64,13 +65,13 @@ async function login(page: Page, copy: typeof copies[number], email: string, val
 for (const copy of copies) {
   test(`${copy.locale}: registration, email, session, logout and password recovery`, async ({ page, request, browser, isMobile }, testInfo) => {
     const email = `e2e-${randomUUID()}@example.test`
-    await page.goto(`/${copy.locale}/account`)
-    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/login$`))
+    await visitLocale(page, `/account`, copy.locale)
+    await expect(page).toHaveURL(new RegExp(`/login$`))
     expect((await page.request.get('/api/me')).status()).toBe(401)
 
-    await page.goto(`/${copy.locale}`)
+    await visitLocale(page, `/`, copy.locale)
     await expect(page.locator('.auth-header-login')).toBeVisible()
-    await page.goto(`/${copy.locale}/register`)
+    await visitLocale(page, `/register`, copy.locale)
     await page.getByRole('button', { name: copy.register, exact: true }).click()
     await expect(page.getByText(copy.nameRequired, { exact: true })).toBeVisible()
     await expect(page.getByLabel(copy.name, { exact: true })).toBeFocused()
@@ -91,7 +92,7 @@ for (const copy of copies) {
     await expect(page.getByRole('alert')).toContainText(copy.unverified)
     const initial = await emailLink(request, email, '/verify-email')
     expect(initial.subject).toContain(copy.subject)
-    await page.goto(`/${copy.locale}/verify-email`)
+    await visitLocale(page, `/verify-email`, copy.locale)
     await page.getByLabel('Email', { exact: true }).fill(email)
     await page.getByRole('button', { name: copy.resend, exact: true }).click()
     await expect(page.getByRole('main').getByRole('status')).toContainText(copy.emailSent)
@@ -100,7 +101,7 @@ for (const copy of copies) {
     await expect(page.getByRole('main').getByRole('status')).toContainText(copy.verified)
 
     await login(page, copy, email)
-    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/account$`))
+    await expect(page).toHaveURL(new RegExp(`/account$`))
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(copy.locale === 'ru' ? 'Мой кабинет' : 'My account')
     await expect(page.getByTestId('profile-name')).toHaveText('Тест')
     await page.reload()
@@ -111,22 +112,22 @@ for (const copy of copies) {
     const cookies = await page.context().cookies()
     expect(cookies.find(cookie => cookie.name.includes('session_token'))?.httpOnly).toBe(true)
     await page.locator('.account-header .brand').click()
-    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/gardens$`))
+    await expect(page).toHaveURL(new RegExp(`/gardens$`))
     await expect(page.locator('.landing')).toHaveCount(0)
     if (isMobile) await page.getByTestId('garden-account-menu').tap()
     else await page.getByTestId('garden-account-menu').click()
     await page.getByRole('menuitem', { name: copy.locale === 'ru' ? 'Профиль' : 'Profile', exact: true }).click()
-    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/account$`))
+    await expect(page).toHaveURL(new RegExp(`/account$`))
     await page.getByRole('button', { name: copy.logout, exact: true }).click()
-    await expect(page).toHaveURL(new RegExp(`/${copy.locale}$`))
+    await expect(page).toHaveURL(new RegExp(`/$`))
     await expect(page.locator('.landing')).toBeVisible()
     expect((await page.request.get('/api/me')).status()).toBe(401)
 
     await login(page, copy, email)
-    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/account$`))
-    const home = await page.goto(`/${copy.locale}`)
+    await expect(page).toHaveURL(new RegExp(`/account$`))
+    const home = await visitLocale(page, `/`, copy.locale)
     expect(home?.status()).toBe(200)
-    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/gardens$`))
+    await expect(page).toHaveURL(new RegExp(`/gardens$`))
     await expect(page.locator('.landing')).toHaveCount(0)
     await page.reload()
     await expect(page.getByTestId('garden-choices')).toBeVisible()
@@ -134,7 +135,7 @@ for (const copy of copies) {
     if (isMobile) await page.getByTestId('garden-account-menu').tap()
     else await page.getByTestId('garden-account-menu').click()
     await page.getByRole('menuitem', { name: copy.locale === 'ru' ? 'Профиль' : 'Profile', exact: true }).click()
-    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/account$`))
+    await expect(page).toHaveURL(new RegExp(`/account$`))
     await expect(page.getByTestId('profile-name')).toHaveText('Тест')
     const exit = page.getByRole('button', { name: copy.logout, exact: true })
     await expect(exit).toBeEnabled()
@@ -147,19 +148,19 @@ for (const copy of copies) {
     else await exit.click()
     await expect(page.getByRole('alert')).toContainText(copy.locale === 'ru' ? 'Не удалось выполнить запрос. Попробуйте ещё раз немного позже.' : 'We could not complete your request. Please try again shortly.')
     await expect(exit).toBeEnabled()
-    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/account$`))
+    await expect(page).toHaveURL(new RegExp(`/account$`))
     expect((await page.request.get('/api/me')).status()).toBe(200)
     await page.unroute('**/api/auth/sign-out')
     if (isMobile) await exit.tap()
     else await exit.click()
     await expect(exit).toHaveCount(0)
-    await expect(page).toHaveURL(new RegExp(`/${copy.locale}$`))
+    await expect(page).toHaveURL(new RegExp(`/$`))
     await expect(page.locator('.landing')).toBeVisible()
     expect((await page.request.get('/api/me')).status()).toBe(401)
-    await page.goto(`/${copy.locale}`)
+    await visitLocale(page, `/`, copy.locale)
     const header = page.locator('.site-header')
     await expect(header.locator('.auth-header-login')).toBeVisible()
-    await expect(header.locator('.header-cta')).toHaveAttribute('href', `/${copy.locale}/register`)
+    await expect(header.locator('.header-cta')).toHaveAttribute('href', `/register`)
     await page.reload()
     await expect(exit).toHaveCount(0)
     await expect(header.locator('.auth-header-login')).toBeVisible()
@@ -169,7 +170,7 @@ for (const copy of copies) {
     try {
       const signedIn = await signInFixture(other.request, { origin: 'http://127.0.0.1:4173', email, password })
       expect(signedIn.ok()).toBe(true)
-      await page.goto(`/${copy.locale}/forgot-password`)
+      await visitLocale(page, `/forgot-password`, copy.locale)
       await page.getByLabel('Email', { exact: true }).fill(email)
       await page.getByRole('button', { name: copy.reset, exact: true }).click()
       await expect(page.getByRole('main').getByRole('status')).toContainText(copy.emailSent)
@@ -187,21 +188,21 @@ for (const copy of copies) {
       await login(page, copy, email)
       await expect(page.getByRole('alert')).toContainText(copy.credentials)
       await login(page, copy, email, newPassword)
-      await expect(page).toHaveURL(new RegExp(`/${copy.locale}/account$`))
+      await expect(page).toHaveURL(new RegExp(`/account$`))
     } finally {
       await other.close()
     }
   })
 
   test(`${copy.locale}: invalid links, generic recovery response and network errors`, async ({ page }) => {
-    await page.goto(`/${copy.locale}/reset-password?error=INVALID_TOKEN`)
+    await visitLocale(page, `/reset-password?error=INVALID_TOKEN`, copy.locale)
     await expect(page.getByRole('alert')).toContainText(copy.invalid)
     await expect(page.getByRole('button', { name: copy.save, exact: true })).toHaveCount(0)
-    await page.goto(`/${copy.locale}/forgot-password`)
+    await visitLocale(page, `/forgot-password`, copy.locale)
     await page.getByLabel('Email', { exact: true }).fill(`absent-${randomUUID()}@example.test`)
     await page.getByRole('button', { name: copy.reset, exact: true }).click()
     await expect(page.getByRole('main').getByRole('status')).toContainText(copy.emailSent)
-    await page.goto(`/${copy.locale}/login`)
+    await visitLocale(page, `/login`, copy.locale)
     await page.route('**/api/auth/sign-in/email', route => route.abort())
     await page.getByLabel('Email', { exact: true }).fill('absent@example.test')
     await page.getByLabel(copy.password, { exact: true }).fill(password)

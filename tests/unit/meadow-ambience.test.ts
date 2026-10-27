@@ -6,7 +6,7 @@ import { getMeadowInsectLayout } from '../../app/data/meadowLife'
 import { getMemorialLayout } from '../../app/data/demoMemorials'
 import { createMeadowAmbience } from '../../app/utils/meadowAmbience'
 
-const sizes = [[1000, 650], [640, 840], [640, 1340], [1900, 650]] as const
+const sizes = [[1200, 1000]] as const // The garden world is fixed; viewport changes only move the camera.
 
 test('meadow insect flight envelopes stay at flowered edges and clear of every place and name', () => {
   for (const [width, height] of sizes) {
@@ -22,7 +22,7 @@ test('meadow insect flight envelopes stay at flowered edges and clear of every p
         const bottom = flight.y + flight.ry + radius
         assert.ok(left >= 8 && right <= width - 8 && top >= 8 && bottom <= height - 8)
         for (const place of getMemorialLayout(width, height, 'meadow').places) {
-          assert.equal(right > place.x - 65 && left < place.x + 65 && bottom > place.y - 52 && top < place.y + 65, false)
+          assert.equal(right > place.x - 70 && left < place.x + 70 && bottom > place.y - 55 && top < place.y + 70, false)
         }
       }
     }
@@ -53,7 +53,7 @@ test('meadow insects animate only transforms with a fixed small geometry budget 
           assert.ok(child.visible && child.alpha > 0, 'reduced motion must retain visible static insects')
           for (const value of [child.x, child.y, child.rotation, bounds.minX, bounds.minY, bounds.maxX, bounds.maxY]) assert.ok(Number.isFinite(value))
           for (const place of getMemorialLayout(width, height, 'meadow').places) {
-            assert.equal(bounds.maxX > place.x - 65 && bounds.minX < place.x + 65 && bounds.maxY > place.y - 52 && bounds.minY < place.y + 65, false)
+            assert.equal(bounds.maxX > place.x - 70 && bounds.minX < place.x + 70 && bounds.maxY > place.y - 55 && bounds.minY < place.y + 70, false)
           }
         }
       }

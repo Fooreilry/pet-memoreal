@@ -4,7 +4,7 @@ export default defineEventHandler((event) => {
   if (!['GET', 'HEAD'].includes(getMethod(event))) return
   const current = getRequestURL(event)
   // Canonicalize page navigation only. API origin checks remain strict.
-  if (current.pathname !== '/' && !/^\/(ru|en)(\/|$)/.test(current.pathname)) return
+  if (/^\/(?:api|_nuxt|_i18n)(\/|$)/.test(current.pathname) || /\.[a-z0-9]+$/i.test(current.pathname)) return
   const configured = process.env.BETTER_AUTH_URL
   if (!configured) return
   const canonical = new URL(configured)

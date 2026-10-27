@@ -11,25 +11,23 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css'],
   colorMode: { preference: 'light', fallback: 'light' },
   routeRules: {
-    '/ru': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
-    '/en': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
-    '/ru/login': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
-    '/en/login': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
-    '/ru/register': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
-    '/en/register': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
-    '/ru/gardens': { headers: { 'cache-control': 'private, no-store' } },
-    '/en/gardens': { headers: { 'cache-control': 'private, no-store' } },
+    '/': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
+    '/login': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
+    '/register': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
+    '/verify-email': { headers: { 'cache-control': 'private, no-store' } },
+    '/forgot-password': { headers: { 'cache-control': 'private, no-store' } },
+    '/reset-password': { headers: { 'cache-control': 'private, no-store' } },
+    '/gardens': { headers: { 'cache-control': 'private, no-store' } },
     '/api/auth/**': { headers: { 'cache-control': 'no-store' } },
     '/api/me': { headers: { 'cache-control': 'no-store' } },
     '/api/memorials/**': { headers: { 'cache-control': 'no-store' } },
-    '/ru/memorials/new': { headers: { 'cache-control': 'no-store' } },
-    '/en/memorials/new': { headers: { 'cache-control': 'no-store' } },
-    '/ru/account': { headers: { 'cache-control': 'no-store' } },
-    '/en/account': { headers: { 'cache-control': 'no-store' } }
+    '/memorials/new': { headers: { 'cache-control': 'private, no-store' } },
+    '/account': { headers: { 'cache-control': 'private, no-store' } }
   },
   i18n: {
-    defaultLocale: 'ru',
-    strategy: 'prefix',
+    defaultLocale: 'en',
+    strategy: 'no_prefix',
+    detectBrowserLanguage: false,
     locales: [
       { code: 'ru', language: 'ru-RU', name: 'Русский', file: 'ru.json' },
       { code: 'en', language: 'en-US', name: 'English', file: 'en.json' }

@@ -1,3 +1,4 @@
+import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 
 const cases = [
@@ -15,7 +16,7 @@ for (const copy of cases) {
       if (/^\/api\/(auth(?:\/|$)|me$|memorials(?:\/|$)|gardens(?:\/|$))/.test(path)) accountRequests.push(path)
     })
     await page.emulateMedia({ reducedMotion: 'no-preference' })
-    await page.goto(`/${copy.locale}`)
+    await visitLocale(page, `/`, copy.locale)
     await expect(page.getByRole('heading', { level: 1 })).toContainText(copy.title)
     await expect(page.locator('html')).toHaveAttribute('lang', copy.locale)
     await expect(page).toHaveTitle(/PetMemoreal/)
@@ -65,7 +66,7 @@ for (const copy of cases) {
   })
 
   test(`${copy.locale}: one garden row, vertical steps and a fixed back-to-top link`, async ({ page }, testInfo) => {
-    await page.goto(`/${copy.locale}`)
+    await visitLocale(page, `/`, copy.locale)
     await expect(page.getByTestId('back-to-top')).toBeHidden()
     await expect(page.locator('.promise-strip, .steps-grid, .values-grid')).toHaveCount(0)
     await expect(page.locator('.garden-doors > article')).toHaveCount(4)
@@ -101,8 +102,8 @@ for (const copy of cases) {
     await page.keyboard.press('Enter')
     await expect.poll(() => page.evaluate(() => scrollY)).toBeLessThan(2)
     await expect(back).toBeHidden()
-    await expect(page).toHaveURL(new RegExp(`/${copy.locale}#top$`))
-    await page.goto(`/${copy.locale}#questions`)
+    await expect(page).toHaveURL(new RegExp(`/#top$`))
+    await visitLocale(page, `/#questions`, copy.locale)
     await expect(back).toBeVisible()
     await back.click()
     await expect.poll(() => page.evaluate(() => scrollY)).toBeLessThan(2)
@@ -111,28 +112,28 @@ for (const copy of cases) {
   })
 
   test(`${copy.locale}: constant landing links lead a guest to registration or sign in`, async ({ page }) => {
-    await page.goto(`/${copy.locale}`)
+    await visitLocale(page, `/`, copy.locale)
     const primary = page.locator('.hero-actions a').first()
     const secondary = page.locator('.hero-actions a').last()
     await expect(primary).toHaveAccessibleName(copy.locale === 'ru' ? 'Создать место памяти' : 'Create a memorial')
-    await expect(primary).toHaveAttribute('href', `/${copy.locale}/register`)
-    await expect(secondary).toHaveAttribute('href', `/${copy.locale}/login`)
-    await expect(page.locator('.auth-header-login')).toHaveAttribute('href', `/${copy.locale}/login`)
-    await expect(page.locator('.header-cta')).toHaveAttribute('href', `/${copy.locale}/register`)
+    await expect(primary).toHaveAttribute('href', `/register`)
+    await expect(secondary).toHaveAttribute('href', `/login`)
+    await expect(page.locator('.auth-header-login')).toHaveAttribute('href', `/login`)
+    await expect(page.locator('.header-cta')).toHaveAttribute('href', `/register`)
     for (const action of await page.locator('.invitation-actions a').all()) {
-      await expect(action).toHaveAttribute('href', `/${copy.locale}/register`)
+      await expect(action).toHaveAttribute('href', `/register`)
     }
     await primary.focus()
     await page.keyboard.press('Enter')
-    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/register$`))
+    await expect(page).toHaveURL(new RegExp(`/register$`))
     await expect(page.locator('.auth-form')).toBeVisible()
     await page.goBack()
     await secondary.click()
-    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/login$`))
+    await expect(page).toHaveURL(new RegExp(`/login$`))
     await expect(page.locator('.auth-form')).toBeVisible()
     await page.goBack()
     await page.locator('.invitation-actions a').first().click()
-    await expect(page).toHaveURL(new RegExp(`/${copy.locale}/register$`))
+    await expect(page).toHaveURL(new RegExp(`/register$`))
   })
 }
 
@@ -141,7 +142,7 @@ test.describe('server-rendered landing', () => {
 
   for (const copy of cases) {
     test(`${copy.locale}: all content and ordinary navigation work with JavaScript disabled`, async ({ page }, testInfo) => {
-      await page.goto(`/${copy.locale}`)
+      await visitLocale(page, `/`, copy.locale)
       await expect(page.getByRole('heading', { level: 1 })).toContainText(copy.title)
       await expect(page.locator('.garden-doors article')).toHaveCount(4)
       await expect(page.locator('.faq-list article p')).toHaveCount(4)
@@ -152,24 +153,24 @@ test.describe('server-rendered landing', () => {
       await page.locator('footer').scrollIntoViewIfNeeded()
       await expect(page.getByTestId('back-to-top')).toBeHidden()
       await page.locator('.hero-actions a').first().click()
-      await expect(page).toHaveURL(new RegExp(`/${copy.locale}/register$`))
+      await expect(page).toHaveURL(new RegExp(`/register$`))
       await expect(page.locator('.auth-form')).toBeVisible()
     })
   }
 })
 
 test('language switch opens the translated static page', async ({ page }) => {
-  await page.goto('/ru')
+  await visitLocale(page, '/', 'ru')
   await page.getByRole('link', { name: 'Switch to English', exact: true }).click()
-  await expect(page).toHaveURL(/\/en$/)
+  await expect(page).toHaveURL(/\/$/)
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Love stays.')
   await page.getByRole('link', { name: 'Переключить на русский', exact: true }).click()
-  await expect(page).toHaveURL(/\/ru$/)
+  await expect(page).toHaveURL(/\/$/)
 })
 
 for (const copy of cases) {
   test(`${copy.locale}: missing page explains the error and returns home`, async ({ page }) => {
-    const response = await page.goto(`/${copy.locale}/missing-page`)
+    const response = await visitLocale(page, `/missing-page`, copy.locale)
     expect(response?.status()).toBe(404)
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(copy.locale === 'ru' ? 'Эта тропинка никуда не ведёт' : 'This path leads nowhere')
     await page.getByRole('link', { name: copy.locale === 'ru' ? 'На главную' : 'Back to the garden', exact: true }).click()

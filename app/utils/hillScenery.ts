@@ -1,8 +1,9 @@
 import type { Graphics } from 'pixi.js'
-import { getMemorialLayout } from '../data/demoMemorials'
 import { getHillSceneryLayout } from '../data/hillScenery'
 import type { HillPoint, HillRock, HillRockKind } from '../data/hillScenery'
 import { drawShrub } from './gardenDecor'
+import { drawGardenPaths } from './gardenPaths'
+import { drawGardenGround } from './gardenGround'
 
 type Point = readonly [number, number]
 const outlines: Record<HillRockKind, readonly Point[]> = {
@@ -20,7 +21,7 @@ function polygon(g: Graphics, points: readonly Point[], x: number, y: number, si
   g.closePath().fill({ color, alpha })
 }
 
-function drawRock(g: Graphics, rock: HillRock) {
+export function drawHillRock(g: Graphics, rock: HillRock) {
   const { x, y, size, kind } = rock
   const outline = outlines[kind]
   g.ellipse(x + size * 0.2, y + size * 0.4, size * 1.35, size * 0.38).fill({ color: 0x163b31, alpha: 0.3 })
@@ -46,8 +47,8 @@ function drawRock(g: Graphics, rock: HillRock) {
   g.ellipse(x + size * 0.95, y + size * 0.45, size * 0.15, size * 0.11).fill(0x96a38b)
 }
 
-function streamRibbon(g: Graphics, points: HillPoint[], halfWidth: number, bank: number, color: number, alpha = 1) {
-  const widths = points.map((_, index) => halfWidth * (0.85 + Math.sin(index * 0.72) * 0.16 + Math.cos(index * 0.3) * 0.08) + bank)
+function streamRibbon(g: Graphics, points: HillPoint[], halfWidth: number, bank: number, color: number, alpha = 1, phase = 0) {
+  const widths = points.map((_, index) => halfWidth * (0.85 + Math.sin((index + phase) * 0.72) * 0.16 + Math.cos((index + phase) * 0.3) * 0.08) + bank)
   const left = points.map((point, index) => ({ x: point.x - widths[index]!, y: point.y }))
   const right = points.map((point, index) => ({ x: point.x + widths[index]!, y: point.y })).reverse()
   g.moveTo(left[0]!.x, left[0]!.y)
@@ -63,11 +64,11 @@ function streamRibbon(g: Graphics, points: HillPoint[], halfWidth: number, bank:
   g.closePath().fill({ color, alpha })
 }
 
-function drawStream(g: Graphics, points: HillPoint[], preview: boolean) {
+export function drawHillStream(g: Graphics, points: HillPoint[], preview: boolean, phase = 0) {
   const width = preview ? 5.5 : 8
-  streamRibbon(g, points, width, 7, 0x234f3e, 0.4)
-  streamRibbon(g, points, width, 4.5, 0x89a778)
-  streamRibbon(g, points, width, 0, 0x4d9690)
+  streamRibbon(g, points, width, 7, 0x234f3e, 0.4, phase)
+  streamRibbon(g, points, width, 4.5, 0x89a778, 1, phase)
+  streamRibbon(g, points, width, 0, 0x4d9690, 1, phase)
   for (let index = 2; index < points.length - 1; index += 3) {
     const point = points[index]!
     g.moveTo(point.x - 4, point.y).quadraticCurveTo(point.x, point.y + 2, point.x + 4, point.y - 1)
@@ -78,41 +79,30 @@ function drawStream(g: Graphics, points: HillPoint[], preview: boolean) {
   }
 }
 
-function bridge(g: Graphics, x: number, y: number) {
-  g.roundRect(x - 22, y - 7, 44, 17, 3).fill({ color: 0x213f32, alpha: 0.45 })
-  g.roundRect(x - 22, y - 10, 44, 15, 2).fill(0xa6a17d)
-  for (let index = 0; index < 6; index++) g.moveTo(x - 18 + index * 7, y - 9).lineTo(x - 18 + index * 7, y + 4).stroke({ color: 0x5f775b, width: 1 })
-  g.moveTo(x - 24, y - 10).lineTo(x + 24, y - 10).stroke({ color: 0xc9c8a3, width: 2 })
-}
-
-export function drawHillLandscape(g: Graphics, width: number, height: number, preview: boolean) {
-  const { rocks, shrubs, stream } = getHillSceneryLayout(width, height, preview)
+export function drawHillTerrain(g: Graphics, width: number, height: number, preview: boolean) {
+  const { stream } = getHillSceneryLayout(width, height, preview)
   if (preview) {
     const artHeight = height - 99
     g.moveTo(0, artHeight * 0.4).quadraticCurveTo(width * 0.35, -20, width, artHeight * 0.15).lineTo(width, height).lineTo(0, height).closePath().fill(0x6c946d)
     g.moveTo(0, artHeight * 0.7).quadraticCurveTo(width * 0.55, artHeight * 0.05, width, artHeight * 0.6).lineTo(width, height).lineTo(0, height).closePath().fill(0x4c7d5a)
-    drawStream(g, stream, true)
-    g.moveTo(width * 0.27, artHeight).bezierCurveTo(width * 0.48, artHeight * 0.75, width * 0.22, artHeight * 0.45, width * 0.5, 18)
-      .stroke({ color: 0xb5c29c, width: 8, alpha: 0.65 })
+    drawGardenGround(g, width, height, 'hill', true)
+    drawGardenPaths(g, width, height, 'hill', true)
+    drawHillStream(g, stream, true)
   } else {
-    const { rows, cellH } = getMemorialLayout(width, height, 'hill')
-    for (let row = 0; row < rows; row++) {
-      const y = 78 + (row + 0.5) * cellH + 64
-      g.moveTo(20, y - cellH - 12).quadraticCurveTo(width * 0.55, y - cellH - 25, width - 20, y - cellH + 10)
-        .lineTo(width - 20, y + 14).quadraticCurveTo(width * 0.5, y - 18, 20, y - 12).closePath().fill({ color: row % 2 ? 0x83a375 : 0xa8bf88, alpha: 0.09 })
-      // A green turf lip and shaded earth replace the long dry masonry walls.
-      g.moveTo(28, y - 12).quadraticCurveTo(width * 0.55, y - 20, width - 28, y + 14)
-        .lineTo(width - 28, y + 25).quadraticCurveTo(width * 0.55, y - 7, 28, y + 1).closePath().fill({ color: 0x244e3c, alpha: 0.5 })
-      g.moveTo(28, y - 12).quadraticCurveTo(width * 0.55, y - 20, width - 28, y + 14).stroke({ color: 0x8eac78, width: 5, alpha: 0.65 })
-      if (row < rows - 1) {
-        const x = width - 61
-        g.moveTo(x, y + 2).lineTo(x, y + 30).stroke({ color: 0x9eaf90, width: 24, alpha: 0.75 })
-        for (let index = 0; index < 5; index++) g.moveTo(x - 12, y + 3 + index * 6).lineTo(x + 12, y + 3 + index * 6).stroke({ color: 0x54755b, width: 1.5 })
-      }
+    for (const [x, y, rx, ry] of [[0.35, 0.27, 0.25, 0.13], [0.62, 0.58, 0.3, 0.17], [0.3, 0.82, 0.24, 0.11]]) {
+      g.ellipse(width * x!, height * y!, width * rx!, height * ry!).fill({ color: 0x8eae79, alpha: 0.055 })
     }
-    drawStream(g, stream, false)
-    for (const index of [7, 17]) bridge(g, stream[index]!.x, stream[index]!.y)
+    drawGardenPaths(g, width, height, 'hill', false)
+    drawHillStream(g, stream, false)
   }
-  for (const rock of rocks) drawRock(g, rock)
+}
+
+export function drawHillDecor(g: Graphics, { rocks, shrubs }: ReturnType<typeof getHillSceneryLayout>) {
+  for (const rock of rocks) drawHillRock(g, rock)
   for (const shrub of shrubs) drawShrub(g, shrub)
+}
+
+export function drawHillLandscape(g: Graphics, width: number, height: number, preview: boolean) {
+  drawHillTerrain(g, width, height, preview)
+  drawHillDecor(g, getHillSceneryLayout(width, height, preview))
 }

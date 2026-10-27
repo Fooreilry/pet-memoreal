@@ -5,14 +5,18 @@ import { getMemorialLayout } from '../data/demoMemorials'
 import { createGardenLife } from './gardenLife'
 import { createMonumentArt } from './monumentArt'
 import { getMonumentKind } from '../data/monuments'
-import { drawHillLandscape } from './hillScenery'
-import { drawGroveLandscape } from './groveScenery'
-import { drawLakeLandscape } from './lakeScenery'
-import { drawMeadowLandscape } from './meadowScenery'
+import { drawHillLandscape, drawHillTerrain } from './hillScenery'
+import { drawGroveLandscape, drawGroveTerrain } from './groveScenery'
+import { drawLakeLandscape, drawLakeTerrain } from './lakeScenery'
+import { drawMeadowLandscape, drawMeadowTerrain } from './meadowScenery'
+import { drawGardenGround } from './gardenGround'
 import { getGardenPlantLayout } from '../data/gardenPlants'
 import { drawGardenPlant } from './gardenBotany'
 import { drawFlowers as flowers, drawLantern as lantern } from './gardenDecor'
 import type { PublicMemorial } from '../../shared/memorials'
+import { createGardenChunkArt } from './gardenChunkArt'
+import { gardenBoundsVisible } from './gardenProjection'
+import type { GardenView } from './gardenProjection'
 
 type Garden = typeof demoGardens[number]
 type Translate = (key: string, values?: Record<string, string | number>) => string
@@ -42,27 +46,19 @@ function glow(g: Graphics, x: number, y: number, radius: number, color: number) 
   for (let i = 5; i > 0; i--) g.circle(x, y, radius * i / 5).fill({ color, alpha: 0.025 + (5 - i) * 0.009 })
 }
 
-function landscape(g: Graphics, garden: Garden, w: number, h: number, preview: boolean) {
+function landscape(g: Graphics, garden: Garden, w: number, h: number, preview: boolean, terrainOnly = false) {
   const mood = moods[garden.id]
-  const rand = random(garden.count * 77)
-  g.roundRect(0, 0, w, h, 28).fill(mood.ground)
-  // Broad translucent patches give the lawn depth without per-frame geometry work.
-  for (let i = 0; i < (garden.id === 'meadow' ? 0 : 35); i++) {
-    const x = 25 + rand() * (w - 50)
-    const y = 25 + rand() * (h - 50)
-    g.ellipse(x, y, 20 + rand() * 60, 10 + rand() * 25).fill({ color: i % 3 ? mood.leaf : 0x142f30, alpha: 0.1 })
+  // Selected gardens share the continuous world ground beneath this transparent feature layer.
+  if (preview || !terrainOnly) {
+    g.roundRect(0, 0, w, h, 28).fill(mood.ground)
+    if (!(preview && garden.id === 'hill')) drawGardenGround(g, w, h, garden.id, preview)
   }
-  for (let i = 0; i < (garden.id === 'meadow' ? 0 : 650); i++) {
-    const x = 18 + rand() * (w - 36)
-    const y = 18 + rand() * (h - 36)
-    g.moveTo(x, y).lineTo(x + 2, y - 3 - rand() * 3).stroke({ color: i % 3 ? 0xb3c39a : 0x122e2c, width: 1, alpha: 0.12 })
-  }
-  if (garden.id === 'meadow') drawMeadowLandscape(g, w, h, preview)
-  else if (garden.id === 'grove') drawGroveLandscape(g, w, h, preview)
-  else if (garden.id === 'hill') drawHillLandscape(g, w, h, preview)
-  else drawLakeLandscape(g, w, h, preview)
-  for (const plant of getGardenPlantLayout(w, h, garden.id, preview)) drawGardenPlant(g, plant)
-  g.roundRect(8, 8, w - 16, h - 16, 24).stroke({ color: 0xd8d4ad, width: 1, alpha: 0.16 })
+  if (garden.id === 'meadow') (terrainOnly ? drawMeadowTerrain : drawMeadowLandscape)(g, w, h, preview)
+  else if (garden.id === 'grove') (terrainOnly ? drawGroveTerrain : drawGroveLandscape)(g, w, h, preview)
+  else if (garden.id === 'hill') (terrainOnly ? drawHillTerrain : drawHillLandscape)(g, w, h, preview)
+  else (terrainOnly ? drawLakeTerrain : drawLakeLandscape)(g, w, h, preview)
+  if (!terrainOnly) for (const plant of getGardenPlantLayout(w, h, garden.id, preview)) drawGardenPlant(g, plant)
+  if (preview) g.roundRect(8, 8, w - 16, h - 16, 24).stroke({ color: 0xd8d4ad, width: 1, alpha: 0.16 })
 }
 
 export function getGardenOverviewLayout(width: number, height: number) {
@@ -82,8 +78,9 @@ export function getGardenOverviewLayout(width: number, height: number) {
 export function createGardenScene(width: number, height: number, garden: Garden | undefined, t: Translate, onSelect: (id: GardenId) => void, saved: PublicMemorial[] = []) {
   const root = new Container()
   const staticArt = new Container()
+  const chunks: { node: Container, bounds: GardenView }[] = []
   root.addChild(staticArt)
-  staticArt.addChild(new Graphics().roundRect(0, 0, width, height, 28).fill(0x142e2e))
+  if (!garden) staticArt.addChild(new Graphics().roundRect(0, 0, width, height, 28).fill(0x142e2e))
   if (!garden) {
     getGardenOverviewLayout(width, height).forEach(({ garden: item, x, y, width: tileW, height: tileH }, index) => {
       const tile = new Container()
@@ -114,33 +111,46 @@ export function createGardenScene(width: number, height: number, garden: Garden 
     })
   } else {
     const ground = new Graphics()
-    landscape(ground, garden, width, height, false)
-    staticArt.addChild(ground)
+    landscape(ground, garden, width, height, false, true)
+    const terrain = new Container()
+    terrain.eventMode = 'none'
+    terrain.addChild(ground)
+    terrain.cacheAsTexture({ resolution: 2, antialias: true })
+    staticArt.addChild(terrain)
     const mood = moods[garden.id]
     const monumentArt = createMonumentArt()
-    for (const [index, { x, y, memorial }] of getMemorialLayout(width, height, garden.id, saved).places.entries()) {
+    const drawChunk = createGardenChunkArt(width, height, garden.id)
+    for (const [index, { x, y, memorial, chunkId }] of getMemorialLayout(width, height, garden.id, saved).places.entries()) {
+      const node = new Container({ label: chunkId })
+      node.eventMode = 'none'
+      const plants = new Graphics()
+      drawChunk(plants, chunkId)
+      node.addChild(plants)
       const marker = new Graphics()
       if (!memorial) {
         marker.ellipse(x, y + 15, 32, 12).fill({ color: 0x193e32, alpha: 0.22 })
         marker.circle(x, y - 4, 22).fill({ color: 0x183d32, alpha: 0.32 }).stroke({ color: 0xd6dfbc, width: 1.5, alpha: 0.6 })
         marker.moveTo(x - 7, y - 4).lineTo(x + 7, y - 4).moveTo(x, y - 11).lineTo(x, y + 3).stroke({ color: 0xe8e4c8, width: 2, alpha: 0.85 })
-        staticArt.addChild(marker)
-        label(staticArt, t('creation.add'), x, y + 30, 18, 0xd5dfc7).anchor.set(0.5, 0)
-        continue
+        node.addChild(marker)
+        label(node, t('creation.add'), x, y + 30, 18, 0xd5dfc7).anchor.set(0.5, 0)
+      } else {
+        flowers(marker, x - 33, y + 16, mood.flower, index + 1, 5)
+        node.addChild(marker)
+        const monument = monumentArt(getMonumentKind(garden.id, memorial.place))
+        monument.position.set(x, y)
+        node.addChild(monument)
+        const light = new Graphics()
+        lantern(light, x + 37, y + 14)
+        node.addChild(light)
+        const name = label(node, memorial.source === 'saved' ? memorial.name : t(`garden.pets.${memorial.profile}`), x, y + 36, 20, 0xfff6e3)
+        if (name.width > 130) name.scale.set(130 / name.width)
+        name.anchor.set(0.5, 0)
       }
-      flowers(marker, x - 33, y + 16, mood.flower, index + 1, 5)
-      staticArt.addChild(marker)
-      const monument = monumentArt(getMonumentKind(garden.id, memorial.place))
-      monument.position.set(x, y)
-      staticArt.addChild(monument)
-      const light = new Graphics()
-      lantern(light, x + 37, y + 14)
-      staticArt.addChild(light)
-      const name = label(staticArt, memorial.source === 'saved' ? memorial.name : t(`garden.pets.${memorial.profile}`), x, y + 36, 20, 0xfff6e3)
-      if (name.width > 130) name.scale.set(130 / name.width)
-      name.anchor.set(0.5, 0)
+      const box = node.getLocalBounds()
+      chunks.push({ node, bounds: { left: box.minX, right: box.maxX, top: box.minY, bottom: box.maxY } })
+      node.cacheAsTexture({ resolution: 2, antialias: true })
+      staticArt.addChild(node)
     }
-    staticArt.cacheAsTexture({ resolution: 2, antialias: true })
   }
   const atmosphere = new Container()
   atmosphere.eventMode = 'none'
@@ -165,5 +175,13 @@ export function createGardenScene(width: number, height: number, garden: Garden 
     }
   }
   update(0)
-  return { root, update }
+  function updateVisibility(view: GardenView) {
+    let visible = 0
+    for (const chunk of chunks) {
+      chunk.node.visible = gardenBoundsVisible(chunk.bounds, view)
+      if (chunk.node.visible) visible++
+    }
+    return visible
+  }
+  return { root, update, updateVisibility }
 }

@@ -4,9 +4,10 @@ import type { GardenMemorial } from '../data/demoMemorials'
 import type { GardenId } from '../data/demoGardens'
 import type { PublicMemorial } from '../../shared/memorials'
 import { getMonumentKind } from '../data/monuments'
+import type { GardenProjection } from '../utils/gardenProjection'
 
-const props = defineProps<{ gardenId: GardenId, width: number, height: number, camera: { zoom: number, x: number, y: number }, interacting: boolean, saved: PublicMemorial[], focusId?: string, canCreate: boolean }>()
-const emit = defineEmits<{ modal: [open: boolean], reveal: [x: number, y: number], create: [place: number] }>()
+const props = defineProps<{ gardenId: GardenId, width: number, height: number, projection: GardenProjection, camera: { zoom: number, x: number, y: number }, interacting: boolean, saved: PublicMemorial[], focusId?: string, canCreate: boolean }>()
+const emit = defineEmits<{ modal: [open: boolean], reveal: [x: number, y: number, halfWidth: number, halfHeight: number], create: [place: number] }>()
 const { t } = useI18n()
 const layout = computed(() => getMemorialLayout(props.width, props.height, props.gardenId, props.saved))
 const selected = shallowRef<GardenMemorial>()
@@ -23,7 +24,7 @@ function show(memorial: GardenMemorial, event: MouseEvent) {
 function revealFocused(event: FocusEvent, x: number, y: number) {
   // Pointer focus must not move a stone between pressing and releasing it.
   if ((event.currentTarget as HTMLButtonElement).matches(':active')) return
-  emit('reveal', x, y)
+  emit('reveal', x, y, 45 / props.width, 50 / props.height)
 }
 
 function restoreFocus(event: Event) {
@@ -59,8 +60,8 @@ watch([() => props.focusId, layout], async () => {
 </script>
 
 <template>
-  <div class="memorial-controls" role="group" :aria-label="t('memorial.places')" :style="{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }">
-    <div v-for="place in layout.places" :key="place.place" class="memorial-position" :style="{ left: `${place.x / width * 100}%`, top: `${(place.y + 5) / height * 100}%`, width: `${90 / width * 100}%`, height: `${100 / height * 100}%` }">
+  <div class="memorial-controls" role="group" :aria-label="t('memorial.places')" :style="{ width: `${projection.width}px`, height: `${projection.height}px`, transform: `translate(${projection.offsetX + camera.x}px, ${projection.offsetY + camera.y}px) scale(${camera.zoom})` }">
+    <div v-for="place in layout.places" :key="place.place" class="memorial-position" :data-world-x="place.x" :data-world-y="place.y" :data-chunk-id="place.chunkId" :style="{ left: `${place.x / width * 100}%`, top: `${(place.y + 5) / height * 100}%`, width: `${90 / width * 100}%`, height: `${100 / height * 100}%` }">
       <UTooltip v-if="place.memorial" :delay-duration="180" disable-hoverable-content :disabled="open || interacting" :content="{ side: 'top', collisionPadding: 16 }" :ui="{ content: 'memorial-preview pointer-events-none h-auto max-w-72 p-0 bg-[#fffcf5] text-[#244b3b] rounded-2xl shadow-xl ring-1 ring-[#dcd9c7]' }">
         <button
           :id="`stone-${place.memorial.id}`"

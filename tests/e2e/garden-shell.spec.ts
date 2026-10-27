@@ -1,3 +1,4 @@
+import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
@@ -6,7 +7,7 @@ test.beforeEach(async ({ page }) => {
 
 for (const locale of ['ru', 'en']) {
   test(`${locale}: the header stays above an inset garden with reachable controls and neighboring paths`, async ({ page }, testInfo) => {
-    await page.goto(`/${locale}/gardens?garden=meadow`)
+    await visitLocale(page, `/gardens?garden=meadow`, locale)
     const canvas = page.locator('canvas')
     await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
     const title = page.getByRole('heading', { level: 1 })
@@ -64,7 +65,7 @@ for (const locale of ['ru', 'en']) {
 
 test('fullscreen keeps forms visible, tracks external exit and closes when leaving the garden', async ({ page }) => {
   await page.route('**/api/auth/get-session', route => route.fulfill({ json: { user: { id: 'preview-user', emailVerified: true }, session: {} } }))
-  await page.goto('/en/gardens?garden=lake')
+  await visitLocale(page, '/gardens?garden=lake', 'en')
   const toggle = page.getByTestId('garden-fullscreen')
   await expect(toggle).toBeEnabled()
   await toggle.click()
@@ -72,7 +73,10 @@ test('fullscreen keeps forms visible, tracks external exit and closes when leavi
   await expect(toggle).toHaveAccessibleName('Exit fullscreen')
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await page.getByTestId('garden-zoom-in').click()
-  await page.getByTestId('empty-lake-3').click()
+  const empty = page.getByTestId('empty-lake-3')
+  await empty.focus()
+  await expect(empty).toBeInViewport()
+  await empty.click()
   const dialog = page.getByRole('dialog')
   await expect(dialog).toHaveAccessibleName('Create a memorial')
   await expect(dialog).toBeVisible()
@@ -87,17 +91,20 @@ test('fullscreen keeps forms visible, tracks external exit and closes when leavi
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await page.getByTestId('garden-switch').click()
   await page.getByTestId('garden-home').click()
-  await expect(page).toHaveURL(/\/en$/)
+  await expect(page).toHaveURL(/\/$/)
   await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull()
 })
 
 test('an unsupported fullscreen API leaves the garden and zoom usable', async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: false }))
-  await page.goto('/en/gardens?garden=hill')
+  await visitLocale(page, '/gardens?garden=hill', 'en')
   await expect(page.getByTestId('garden-fullscreen')).toBeDisabled()
   await expect(page.getByTestId('garden-fullscreen')).toHaveAttribute('title', 'Fullscreen is unavailable in this browser')
   await page.getByTestId('garden-zoom-in').click()
   await expect(page.locator('.camera-toolbar output')).toHaveText('125%')
-  await page.getByTestId('memorial-hill-1').click()
+  const first = page.getByTestId('memorial-hill-1')
+  await first.focus()
+  await expect(first).toBeInViewport()
+  await first.click()
   await expect(page.getByRole('dialog')).toBeVisible()
 })

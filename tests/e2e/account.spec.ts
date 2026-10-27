@@ -1,3 +1,4 @@
+import { visitLocale } from './helpers/locale'
 import { randomUUID } from 'node:crypto'
 import pg from 'pg'
 import { hashPassword } from 'better-auth/crypto'
@@ -30,14 +31,14 @@ const test = base.extend<{ member: { id: string, email: string } }>({
 for (const locale of ['ru', 'en']) {
   test(`${locale}: standalone account, editable profile, persisted surname and bottom sign out`, async ({ page, member }, testInfo) => {
     const ru = locale === 'ru'
-    await page.goto(`/${locale}/account`)
+    await visitLocale(page, `/account`, locale)
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(ru ? 'Мой кабинет' : 'My account')
     await expect(page.locator('.auth-card, .auth-aside, .auth-background')).toHaveCount(0)
     await expect(page.getByTestId('profile-name')).toHaveText('Александра')
     await expect(page.getByTestId('profile-surname')).toHaveText(ru ? 'Не указана' : 'Not provided')
     await expect(page.locator('.account-profile')).toContainText(member.email)
     await expect(page.getByRole('heading', { name: ru ? 'Здесь будут ваши места памяти' : 'Your memorials will be here' })).toBeVisible()
-    await expect(page.getByRole('link', { name: ru ? 'Создать место памяти' : 'Create a memorial', exact: true })).toHaveAttribute('href', `/${locale}/gardens`)
+    await expect(page.getByRole('link', { name: ru ? 'Создать место памяти' : 'Create a memorial', exact: true })).toHaveAttribute('href', `/gardens`)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: testInfo.outputPath('account-empty.png'), fullPage: true })
 
@@ -91,7 +92,7 @@ for (const locale of ['ru', 'en']) {
     expect((await page.request.get('/api/me')).status()).toBe(200)
     await page.unroute('**/api/auth/sign-out')
     await exit.click()
-    await expect(page).toHaveURL(new RegExp(`/${locale}$`))
+    await expect(page).toHaveURL(new RegExp(`/$`))
     await expect(page.locator('.landing')).toBeVisible()
     expect((await page.request.get('/api/me')).status()).toBe(401)
   })
@@ -102,7 +103,7 @@ for (const locale of ['ru', 'en']) {
     expect(created.status()).toBe(201)
     const memorial = await created.json()
     expect(member.id).toBeTruthy()
-    await page.goto(`/${locale}/gardens`)
+    await visitLocale(page, `/gardens`, locale)
     await page.route('**/api/memorials/mine', route => route.fulfill({ status: 503, json: { statusMessage: 'Unavailable' } }))
     // Client navigation allows the failed API response to be controlled without mocking SSR.
     if (testInfo.project.name === 'mobile') await page.getByTestId('garden-account-menu').tap()
@@ -122,7 +123,7 @@ for (const locale of ['ru', 'en']) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: testInfo.outputPath('account-memorials.png'), fullPage: true })
     await list.getByRole('link', { name: /Мило/ }).click()
-    await expect(page).toHaveURL(new RegExp(`/${locale}/gardens\\?garden=grove&memorial=${memorial.id}`))
+    await expect(page).toHaveURL(new RegExp(`/gardens\\?garden=grove&memorial=${memorial.id}`))
     await expect(page.getByRole('dialog')).toHaveAccessibleName('Мило')
   })
 }

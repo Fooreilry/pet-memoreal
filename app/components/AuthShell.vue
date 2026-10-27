@@ -3,7 +3,6 @@ import '~/assets/css/auth.css'
 
 const { t, locale } = useI18n()
 const localePath = useLocalePath()
-const switchLocalePath = useSwitchLocalePath()
 useHead({ htmlAttrs: { lang: () => locale.value }, meta: [{ name: 'robots', content: 'noindex, nofollow' }, { name: 'referrer', content: 'no-referrer' }] })
 </script>
 
@@ -15,7 +14,7 @@ useHead({ htmlAttrs: { lang: () => locale.value }, meta: [{ name: 'robots', cont
       <NuxtLink :to="localePath('/')" class="brand"><span class="brand-mark"><UIcon name="i-lucide-sprout" aria-hidden="true" /></span><span>PetMemoreal<span class="brand-dot">.</span></span></NuxtLink>
       <div class="auth-header-actions">
         <NuxtLink :to="localePath('/')" class="auth-home-link"><UIcon name="i-lucide-arrow-left" aria-hidden="true" />{{ t('auth.home') }}</NuxtLink>
-        <NuxtLink :to="switchLocalePath(locale === 'ru' ? 'en' : 'ru')" class="language-link" :aria-label="t('nav.language')" :lang="locale === 'ru' ? 'en' : 'ru'">{{ locale === 'ru' ? 'EN' : 'RU' }}</NuxtLink>
+        <LanguageSwitch />
       </div>
     </header>
     <main id="auth-main" class="auth-layout shell">

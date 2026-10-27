@@ -1,7 +1,6 @@
 <script setup lang="ts">
-const { t, locale } = useI18n()
+const { t } = useI18n()
 const localePath = useLocalePath()
-const switchLocalePath = useSwitchLocalePath()
 const route = useRoute()
 const request = useRequestFetch()
 const auth = useAuthClient()
@@ -119,7 +118,7 @@ onBeforeUnmount(() => {
   <header class="garden-site-header" data-testid="garden-header">
     <NuxtLink :to="localePath('/')" class="brand" aria-label="PetMemoreal" data-testid="garden-home"><span class="brand-mark"><UIcon name="i-lucide-sprout" aria-hidden="true" /></span><span>PetMemoreal<span class="brand-dot">.</span></span></NuxtLink>
     <div class="garden-header-actions">
-      <NuxtLink :to="switchLocalePath(locale === 'ru' ? 'en' : 'ru')" class="language-link" :aria-label="t('nav.language')" :lang="locale === 'ru' ? 'en' : 'ru'">{{ locale === 'ru' ? 'EN' : 'RU' }}</NuxtLink>
+      <LanguageSwitch />
       <div ref="accountMenu" class="garden-account-menu" @pointerenter="pointerEnter" @pointerleave="pointerLeave" @keydown="menuKeydown" @pointerdown.capture="directInteraction" @focusout="focusLeft">
         <button :id="`${menuId}-trigger`" ref="accountTrigger" type="button" class="garden-account-trigger" :aria-label="t('account.menu')" aria-haspopup="menu" :aria-expanded="open" :aria-controls="open ? menuId : undefined" :disabled="!ready || busy" :aria-busy="busy" :data-authenticated="!!signedIn" data-testid="garden-account-menu" @click="toggleMenu"><UIcon :name="busy ? 'i-lucide-loader-circle' : 'i-lucide-user-round'" :class="{ 'animate-spin': busy }" aria-hidden="true" /></button>
         <div v-if="open" :id="menuId" role="menu" :aria-labelledby="`${menuId}-trigger`" class="garden-account-dropdown">
