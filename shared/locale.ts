@@ -19,5 +19,5 @@ export function safeLocaleReturnPath(value: unknown) {
 export function resolveAuthRedirect(value: unknown) {
   if (typeof value !== 'string' || /[\\\r\n]/.test(value)) return undefined
   const path = withoutLocalePrefix(value)
-  return /^\/(?:memorials\/new|gardens)(?:\?|$)/.test(path) ? path : undefined
+  return /^\/(?:memorials\/new|memorials\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\/edit|gardens)(?:\?|$)/i.test(path) ? path : undefined
 }

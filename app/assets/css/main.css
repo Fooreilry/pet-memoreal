@@ -44,21 +44,26 @@
   --ui-text-highlighted: #123b38;
   --ui-border: #dfdacb;
   --ui-border-accented: #9aa98f;
-  --ui-radius: 0.65rem;
+  --ui-radius: 0.25rem;
+  --control-radius: 8px;
+  --panel-radius: 16px;
+  --focus-color: #9a6423;
+  --focus-width: 2px;
+  --focus-offset: 2px;
 }
 
 html { scroll-behavior: smooth; scroll-padding-top: 32px; }
 body { margin: 0; -webkit-font-smoothing: antialiased; }
-button, input, textarea { font: inherit; }
+button, input, textarea, select { font-family: inherit; }
 ::selection { background: #eed3a0; color: #123b38; }
-:focus-visible { outline: 3px solid #ac7324; outline-offset: 5px; }
+:focus-visible { outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset); }
+input[aria-invalid='true']:focus-visible, textarea[aria-invalid='true']:focus-visible { outline-color: var(--ui-error); }
 section[id] { scroll-margin-top: 35px; }
 .shell { width: min(1240px, calc(100% - 96px)); margin-inline: auto; }
 .site-header { height: 108px; display: flex; align-items: center; justify-content: space-between; gap: 30px; border-bottom: 1px solid var(--ui-border); }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ui-text-highlighted); font-family: var(--font-display); font-size: 25px; letter-spacing: -1px; text-decoration: none; white-space: nowrap; }
-.brand-mark { display: grid; place-items: center; width: 34px; height: 39px; border: 1px solid #9da98b; border-radius: 45% 45% 5px 5px; }
+.brand-mark { display: grid; place-items: center; width: 34px; height: 34px; }
 .brand-mark .iconify { width: 22px; height: 22px; }
-.brand-dot { color: #ad7838; }
 .desktop-nav { display: flex; gap: 27px; font-size: 14px; }
 .desktop-nav a { padding-block: 12px; }
 .desktop-nav a:hover, .text-link:hover { color: #17483e; text-decoration: underline; text-underline-offset: 5px; }
@@ -136,8 +141,6 @@ h3 { color: var(--ui-text-highlighted); }
 .landing-header { --ui-primary: #eee9d8; }
 .landing-header .site-header { border-color: #e0e5d526; }
 .landing-header .brand { color: var(--garden-cream); }
-.landing-header .brand-mark { border-color: #e0e5d54d; background: #e0e5d50a; }
-.landing-header .brand-dot { color: var(--ui-secondary); }
 .landing-header a:hover, .hero-section .text-link:hover { color: #f5c77b; }
 .hero-section { background: radial-gradient(ellipse at 85% 30%, #315341 0%, transparent 55%), var(--garden-night); }
 .hero { padding-block: 62px 82px; gap: 65px; }
@@ -193,7 +196,7 @@ h3 { color: var(--ui-text-highlighted); }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0s !important; }
 }
 .auth-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; padding-block: 48px 80px; align-items: stretch; max-width: 1140px; }
 .auth-aside { padding: 42px; border-radius: 28px; background: radial-gradient(ellipse at bottom right, #315d46, var(--garden-night) 75%); position: relative; overflow: hidden; }
@@ -201,7 +204,7 @@ h3 { color: var(--ui-text-highlighted); }
 .auth-aside > p:not(.eyebrow) { color: #d3deca; line-height: 1.8; }
 .auth-aside .eyebrow { color: var(--ui-secondary); }
 .auth-aside img { width: 100%; max-width: 310px; margin: 38px auto 0; border-radius: 160px 160px 18px 18px; border: 1px solid #b8c99844; }
-.auth-card { min-width: 0; max-width: 520px; width: 100%; padding: 36px; border: 1px solid #dfdacb; border-radius: 24px; background: #fffcf5; box-shadow: 0 15px 40px #123b3805; }
+.auth-card { min-width: 0; max-width: 520px; width: 100%; padding: 36px; border: 1px solid #dfdacb; border-radius: var(--panel-radius); background: #fffcf5; box-shadow: 0 15px 40px #123b3805; }
 .auth-card h1 { font-family: var(--font-display); color: var(--ui-text-highlighted); font-size: clamp(2rem, 3vw, 2.8rem); line-height: 1.15; margin-block: 18px; overflow-wrap: anywhere; }
 .auth-intro { line-height: 1.7; margin-bottom: 28px; color: #52665a; overflow-wrap: anywhere; }
 .auth-form { display: grid; gap: 20px; }

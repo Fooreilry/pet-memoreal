@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { bigint, boolean, check, index, integer, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core'
 import { userRoles } from '../../shared/roles'
+import { petSpecies } from '../../shared/pet-species'
 
 export const gardens = pgTable('gardens', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -69,6 +70,7 @@ export const memorials = pgTable('memorials', {
   gardenId: uuid('garden_id').notNull().references(() => gardens.id, { onDelete: 'restrict' }),
   place: integer('place').notNull(),
   name: varchar('name', { length: 80 }).notNull(),
+  species: text('species', { enum: petSpecies }).default('pet').notNull(),
   born: integer('born').notNull(),
   died: integer('died').notNull(),
   story: text('story').notNull(),
@@ -82,5 +84,6 @@ export const memorials = pgTable('memorials', {
   check('memorials_years_check', sql`${table.born} >= 1900 AND ${table.born} <= ${table.died}`),
   check('memorials_place_check', sql`${table.place} > 0`),
   check('memorials_name_check', sql`length(trim(${table.name})) BETWEEN 1 AND 80`),
-  check('memorials_story_check', sql`length(trim(${table.story})) BETWEEN 1 AND 5000`)
+  check('memorials_story_check', sql`length(trim(${table.story})) BETWEEN 1 AND 5000`),
+  check('memorials_species_check', sql`${table.species} in ('dog', 'cat', 'rabbit', 'hamster', 'guineaPig', 'rat', 'mouse', 'chinchilla', 'ferret', 'hedgehog', 'bird', 'parrot', 'fish', 'turtle', 'snake', 'lizard', 'frog', 'axolotl', 'spider', 'snail', 'pet')`)
 ])

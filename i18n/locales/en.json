@@ -36,6 +36,11 @@
     "label": "Remembering your pet",
     "intro": "Save a name and story, and choose a quiet garden. Your memorial will appear on the map after you save it.",
     "name": "Pet’s name",
+    "species": "Animal type",
+    "speciesPlaceholder": "Choose an animal",
+    "speciesSearch": "Find an animal",
+    "speciesEmpty": "No animals found. Try another name.",
+    "otherSpecies": "Other pet",
     "born": "Year of birth",
     "died": "Year of passing",
     "story": "Your pet’s story",
@@ -46,12 +51,29 @@
     "anonymousHelp": "Your profile name appears beside the story by default. Select this to hide it from visitors.",
     "publicNote": "The name, years and story will be visible to all garden visitors. The memorial will belong to your account.",
     "myPlaces": "My memorials",
-    "view": "View in the garden",
+    "page": {
+      "intro": "Tell us about your pet — keep their name, years and treasured memories together.",
+      "back": "Return to the garden",
+      "cancel": "Cancel",
+      "chooseAnother": "Choose another place in the garden",
+      "summaryTitle": "Your place in the garden",
+      "placeNote": "After saving, you will return to the memorial with your pet’s story open. You can add more memories later.",
+      "loading": "Checking your chosen place…",
+      "invalidTitle": "Choose a free place in the garden",
+      "invalidDescription": "Return to the garden and choose a + where you would like to keep your pet’s story.",
+      "loadError": "We could not check this place",
+      "loadErrorDescription": "Please try again. Your chosen garden and place will stay selected.",
+      "occupiedTitle": "This place is already taken",
+      "occupiedDescription": "Another pet’s story is already kept here. Choose a free + in the garden.",
+      "viewExisting": "Read this place’s story"
+    },
+    "view": "Go to memorial",
     "emptyTitle": "Your memorials will be here",
     "emptyDescription": "Create a place for your pet. Their story will be saved so you can return to the garden.",
     "validation": {
       "name": "Please enter your pet’s name.",
       "nameLimit": "The name must be no longer than 80 characters.",
+      "species": "Please choose an animal type.",
       "year": "Enter a whole year between 1900 and the current year.",
       "order": "The year of passing cannot be earlier than the year of birth.",
       "story": "Please write your pet’s story.",
@@ -112,16 +134,70 @@
     "story": "Our story",
     "favorite": "Favorite things",
     "demo": "Demo memorial: the name, years and story are fictional.",
-    "species": { "dog": "Dog", "cat": "Cat", "pet": "Pet" },
+    "species": {
+      "dog": "Dog",
+      "cat": "Cat",
+      "rabbit": "Rabbit",
+      "hamster": "Hamster",
+      "guineaPig": "Guinea pig",
+      "rat": "Rat",
+      "mouse": "Mouse",
+      "chinchilla": "Chinchilla",
+      "ferret": "Ferret",
+      "hedgehog": "Hedgehog",
+      "bird": "Bird",
+      "parrot": "Parrot",
+      "fish": "Fish",
+      "turtle": "Turtle",
+      "snake": "Snake",
+      "lizard": "Lizard",
+      "frog": "Frog",
+      "axolotl": "Axolotl",
+      "spider": "Spider",
+      "snail": "Snail",
+      "pet": "Pet"
+    },
     "profiles": [
-      { "quote": "Every day felt kinder with you beside us.", "story": "Milo greeted us at the door with his favorite toy. We remember our long walks, his wet nose and the quiet sound of him sleeping beside the sofa.", "favorite": "Walks by the lake, a ball and naps beside the family." },
-      { "quote": "Our little patch of sunshine at home.", "story": "Luna always found the sunniest spot by the window. In the evenings she settled beside our books and filled the room with gentle purring.", "favorite": "Sunny windowsills, paper bags and a soft blanket." },
-      { "quote": "Every walk brings back a memory of you.", "story": "Richie loved discovering new paths and always looked back to check we were close. Even a short walk became an adventure with him.", "favorite": "Woodland trails, autumn leaves and playing with sticks." },
-      { "quote": "Your gentle purr stays with us.", "story": "Bella arrived on a quiet autumn evening. Before long she had claimed the cozy armchair and become our companion through every household task.", "favorite": "Her armchair, ribbons and watching birds." },
-      { "quote": "So much joy in one wagging tail.", "story": "Charlie could make us smile with a single look. He loved visitors and was always the first to greet anyone coming home.", "favorite": "Meadow games, country trips and meeting friends." },
-      { "quote": "Thank you for the quiet happiness of being close.", "story": "Busya always found a spot beside us. We cherish memories of her soft paws and her habit of napping on the edge of our desk.", "favorite": "Boxes, warm blankets and quiet evenings together." },
-      { "quote": "Our faithful friend on every road.", "story": "Oscar joined us on trips and walks. He especially loved stopping by the water, where we could watch the distance and rest together.", "favorite": "Road trips, walks by the water and his soft toy." },
-      { "quote": "You brought so much light into our home.", "story": "Nika explored every corner and found new places to sleep. Her curiosity made ordinary days a little brighter.", "favorite": "Rustling toys, high shelves and morning sunshine." }
+      {
+        "quote": "Every day felt kinder with you beside us.",
+        "story": "Milo greeted us at the door with his favorite toy. We remember our long walks, his wet nose and the quiet sound of him sleeping beside the sofa.",
+        "favorite": "Walks by the lake, a ball and naps beside the family."
+      },
+      {
+        "quote": "Our little patch of sunshine at home.",
+        "story": "Luna always found the sunniest spot by the window. In the evenings she settled beside our books and filled the room with gentle purring.",
+        "favorite": "Sunny windowsills, paper bags and a soft blanket."
+      },
+      {
+        "quote": "Every walk brings back a memory of you.",
+        "story": "Richie loved discovering new paths and always looked back to check we were close. Even a short walk became an adventure with him.",
+        "favorite": "Woodland trails, autumn leaves and playing with sticks."
+      },
+      {
+        "quote": "Your gentle purr stays with us.",
+        "story": "Bella arrived on a quiet autumn evening. Before long she had claimed the cozy armchair and become our companion through every household task.",
+        "favorite": "Her armchair, ribbons and watching birds."
+      },
+      {
+        "quote": "So much joy in one wagging tail.",
+        "story": "Charlie could make us smile with a single look. He loved visitors and was always the first to greet anyone coming home.",
+        "favorite": "Meadow games, country trips and meeting friends."
+      },
+      {
+        "quote": "Thank you for the quiet happiness of being close.",
+        "story": "Busya always found a spot beside us. We cherish memories of her soft paws and her habit of napping on the edge of our desk.",
+        "favorite": "Boxes, warm blankets and quiet evenings together."
+      },
+      {
+        "quote": "Our faithful friend on every road.",
+        "story": "Oscar joined us on trips and walks. He especially loved stopping by the water, where we could watch the distance and rest together.",
+        "favorite": "Road trips, walks by the water and his soft toy."
+      },
+      {
+        "quote": "You brought so much light into our home.",
+        "story": "Nika explored every corner and found new places to sleep. Her curiosity made ordinary days a little brighter.",
+        "favorite": "Rustling toys, high shelves and morning sunshine."
+      }
     ]
   },
   "garden": {
@@ -139,7 +215,12 @@
       "instructions": "Garden controls and help",
       "help": "Drag with a mouse or finger. Zoom with the wheel, a two-finger pinch or the + and − buttons. With a keyboard: focus the map, use arrows and +/−, and press Home for the whole garden."
     },
-    "landscapes": { "meadow": "Flowering clearings, clover, soft grass and sunlit paths", "lake": "Quiet water, water lilies, shoreline plants and a light mist", "grove": "Shaded clearings, layered canopies, shrubs and warm lanterns", "hill": "Green slopes, mossy rocks, shrubs and a stream" },
+    "landscapes": {
+      "meadow": "Flowering clearings, clover, soft grass and sunlit paths",
+      "lake": "Quiet water, water lilies, shoreline plants and a light mist",
+      "grove": "Shaded clearings, layered canopies, shrubs and warm lanterns",
+      "hill": "Green slopes, mossy rocks, shrubs and a stream"
+    },
     "ambience": "Evening light · a quiet walk",
     "life": {
       "meadow": "Butterflies and bees above the wildflowers",
@@ -149,6 +230,12 @@
     },
     "pauseMotion": "Pause motion",
     "resumeMotion": "Bring the garden to life",
+    "effects": {
+      "enable": "Turn on atmospheric effects",
+      "disable": "Turn off atmospheric effects",
+      "unavailable": "Atmospheric effects are unavailable in this browser",
+      "help": "Use this button to turn rain, sunbeams and cloud shadows off. Pause stops both weather and motion in the garden."
+    },
     "reducedMotion": "Motion reduced by your device settings",
     "enter": "Explore the gardens",
     "title": "Four quiet gardens",
@@ -168,10 +255,31 @@
     "territoryLabel": "{name} garden: grounds with paths and abstract memorial stones for pets.",
     "loading": "Opening the garden",
     "loadingHint": "Just a moment, then you can look around.",
+    "preparing": {
+      "title": "The garden is waking up",
+      "label": "Preparing the garden",
+      "opening": "Opening the gate…",
+      "stories": "Gathering stories…",
+      "places": "Preparing the memorials…"
+    },
     "error": "The garden could not be displayed",
     "errorHint": "Please try again. If the map still does not appear, check that hardware acceleration is enabled in your browser.",
-    "names": { "meadow": "Meadow", "lake": "Lake", "grove": "Grove", "hill": "Hill" },
-    "pets": ["Milo", "Luna", "Richie", "Bella", "Charlie", "Busya", "Oscar", "Nika"]
+    "names": {
+      "meadow": "Meadow",
+      "lake": "Lake",
+      "grove": "Grove",
+      "hill": "Hill"
+    },
+    "pets": [
+      "Milo",
+      "Luna",
+      "Richie",
+      "Bella",
+      "Charlie",
+      "Busya",
+      "Oscar",
+      "Nika"
+    ]
   },
   "meta": {
     "title": "PetMemoreal — a place for lasting memories",
@@ -269,6 +377,11 @@
     "top": "Back to top"
   },
   "states": {
+    "serviceUnavailable": {
+      "title": "The garden is temporarily unavailable",
+      "description": "We can’t connect to the garden right now. Please try again a little later.",
+      "dismiss": "Dismiss notification"
+    },
     "loading": {
       "title": "Just a moment…",
       "description": "Preparing your place. This may take a few seconds."
@@ -345,6 +458,28 @@
       "unverified": "Confirm your email first. You can request another confirmation message.",
       "invalidLink": "This link is invalid or has expired. Request a new one.",
       "rateLimit": "Too many attempts. Wait a minute and try again."
+    }
+  },
+  "editing": {
+    "edit": "Edit memorial",
+    "title": "Edit memorial",
+    "label": "Your friend’s story",
+    "intro": "Add another memory or update an important detail. Keep the little things you want to remember here.",
+    "submit": "Save changes",
+    "cancel": "Cancel",
+    "back": "Return to the memorial",
+    "backAccount": "Back to your account",
+    "placeNote": "Your place in the garden will stay the same. You can update the name, years, story and author attribution.",
+    "publicNote": "The name, years and story are visible to garden visitors. Your changes will stay in this memorial.",
+    "loading": "Opening your story…",
+    "unavailableTitle": "This memorial is not available for editing",
+    "unavailableDescription": "You can edit only your own memorials. Find them in your account.",
+    "loadError": "We could not open this story",
+    "loadErrorDescription": "Please try again. If the problem continues, come back a little later.",
+    "errors": {
+      "save": "We could not save your changes. Please try again.",
+      "unavailable": "This memorial is no longer available for editing. Your text is still in the form.",
+      "session": "Your session has expired. Sign in in another tab, then try saving again."
     }
   }
 }

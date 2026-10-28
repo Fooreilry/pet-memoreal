@@ -106,6 +106,6 @@ test('grove leaves pause across hill visits, rotation keeps places clear and a g
   await expect(empty).toBeInViewport()
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/\/login\?redirect=/)
-  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/gardens?garden=grove&create=3')
+  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/memorials/new?garden=grove&place=3')
   expect(errors).toEqual([])
 })

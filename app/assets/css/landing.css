@@ -13,10 +13,10 @@
 .landing h2 { font-size: clamp(32px, 3.2vw, 44px); letter-spacing: -1px; line-height: 1.2; }
 .landing .landing-header { position: absolute; inset: 0 0 auto; z-index: 2; background: transparent; color: #f2eee3; }
 .landing .site-header { height: 94px; border-bottom-color: #f8f3e82b; gap: 20px; }
-.landing .brand-mark { background: #f8f3e810; border-color: #f8f3e840; border-radius: 50%; width: 36px; height: 36px; }
+.landing .brand-mark { width: 36px; height: 36px; }
 .landing .desktop-nav { gap: 24px; font-size: 13px; }
 .landing .header-actions { gap: 16px; }
-.landing .landing-button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 12px 17px; border-radius: 999px; font-weight: 600; text-decoration: none; }
+.landing .landing-button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 12px 17px; border-radius: var(--control-radius); font-weight: 600; text-decoration: none; }
 .landing .landing-button .iconify { width: 18px; height: 18px; flex-shrink: 0; }
 .landing .header-cta { color: #f8f3e8; background: #f8f3e80c; border: 1px solid #f8f3e85c; box-shadow: none; min-height: 44px; }
 .landing .header-cta:hover { background: #f8f3e8; color: #213d36; }
@@ -36,7 +36,7 @@
 .landing .hero-actions > a { min-height: 54px; font-size: 15px; padding: 15px 24px; }
 .landing .hero-actions > a:first-child { background: #f2c179; color: #182f2c; box-shadow: 0 6px 28px #efb35b20; }
 .landing .hero-actions > a:first-child:hover { background: #f8d79f; box-shadow: 0 8px 34px #efb35b38; }
-.landing .hero-actions > .text-link { border: 1px solid #e5e8d56b; border-radius: 999px; background: #142d30b3; color: #fff9ed; backdrop-filter: blur(8px); }
+.landing .hero-actions > .text-link { border: 1px solid #e5e8d56b; border-radius: var(--control-radius); background: #142d30b3; color: #fff9ed; backdrop-filter: blur(8px); }
 .landing .hero-actions > .text-link:hover { background: #234540; border-color: #e5e8d5a6; text-decoration: none; }
 .landing .launch-note { margin-top: 18px; color: #d6dfcf; font-size: 12px; gap: 8px; line-height: 1.7; }
 .landing .launch-note .iconify { width: 16px; height: 16px; flex-shrink: 0; color: #e6c58b; }
@@ -99,7 +99,7 @@
 .landing .faq-list article:first-child { padding-top: 0; }
 .landing .faq-list h3 { font: 600 16px/1.5 var(--font-sans); color: var(--ui-text-highlighted); }
 .landing .faq-list p { margin-top: 12px; font-size: 15px; line-height: 1.9; }
-.landing .invitation { text-align: center; padding: 52px 32px; margin-bottom: 52px; background: #e9ecdf; border: 1px solid #d9decb; border-radius: 26px; }
+.landing .invitation { text-align: center; padding: 52px 32px; margin-bottom: 52px; background: #e9ecdf; border: 1px solid #d9decb; border-radius: var(--panel-radius); }
 .landing .invitation-sprout { width: 32px; height: 32px; color: #607b5a; margin-bottom: 18px; }
 .landing .invitation .eyebrow { justify-content: center; }
 .landing .invitation h2 { margin-top: 16px; font-size: clamp(30px, 3vw, 40px); }
@@ -112,10 +112,10 @@
 .landing .site-footer { padding-block: 0 88px; border: none; }
 .landing .site-footer p, .landing .site-footer > span { font-size: 12px; line-height: 1.7; }
 .landing:focus { outline: none; }
-.landing .back-to-top { position: fixed; z-index: 30; right: max(24px, env(safe-area-inset-right)); bottom: max(24px, env(safe-area-inset-bottom)); display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 48px; padding: 12px 17px; border: 1px solid #e8e1cb66; border-radius: 999px; background: #244b3b; color: #fff9ed; box-shadow: 0 4px 20px #15342624; font-size: 13px; text-decoration: none; }
+.landing .back-to-top { position: fixed; z-index: 30; right: max(24px, env(safe-area-inset-right)); bottom: max(24px, env(safe-area-inset-bottom)); display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 48px; padding: 12px 17px; border: 1px solid #e8e1cb66; border-radius: var(--control-radius); background: #244b3b; color: #fff9ed; box-shadow: 0 4px 20px #15342624; font-size: 13px; text-decoration: none; }
 .landing .back-to-top .iconify { width: 18px; height: 18px; }
 .landing .back-to-top:hover { background: #315d46; }
-.landing .back-to-top:focus-visible { outline: 3px solid #dca65f; outline-offset: 4px; }
+.landing .back-to-top:focus-visible { outline: var(--focus-width) solid #dca65f; outline-offset: var(--focus-offset); }
 @media (max-width: 1100px) {
   .landing .hero-background { object-position: 57% center; }
   .landing .how-section { gap: 52px; }

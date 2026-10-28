@@ -95,7 +95,7 @@ for (const locale of ['ru', 'en']) {
     const ru = locale === 'ru'
     expect(member.id).toBeTruthy()
     // Keep header fixtures separate from creation scenarios, which use lake places 3 and 4.
-    const response = await page.request.post('/api/memorials', { headers: { origin }, data: { name: 'Луна', born: 2012, died: 2025, story: 'Встречала нас у двери и любила солнечные дни.', gardenId: 'lake', place: ru ? 8 : 9, requestId: randomUUID() } })
+    const response = await page.request.post('/api/memorials', { headers: { origin }, data: { name: 'Луна', species: 'cat', born: 2012, died: 2025, story: 'Встречала нас у двери и любила солнечные дни.', gardenId: 'lake', place: ru ? 8 : 9, requestId: randomUUID() } })
     expect(response.status()).toBe(201)
     const memorial = await response.json()
     await visitLocale(page, `/gardens`, locale)

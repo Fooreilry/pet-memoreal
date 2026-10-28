@@ -109,7 +109,7 @@ async function submit(event: FormSubmitEvent<z.output<typeof schema.value>>) {
             <UInput v-model="state.email" type="email" autocomplete="email" :maxlength="254" class="w-full" aria-required="true" />
           </UFormField>
           <UFormField v-if="hasPassword" name="password" :label="t('auth.password')" :help="newPassword ? t('auth.passwordRules') : undefined" required>
-            <UInput v-model="state.password" :type="passwordVisible ? 'text' : 'password'" :autocomplete="newPassword ? 'new-password' : 'current-password'" :maxlength="128" class="w-full" aria-required="true" :ui="{ trailing: 'pe-1' }">
+            <UInput v-model="state.password" :type="passwordVisible ? 'text' : 'password'" :autocomplete="newPassword ? 'new-password' : 'current-password'" :maxlength="128" class="w-full" aria-required="true" :ui="{ base: 'pe-14', trailing: 'pe-1' }">
               <template #trailing><UButton type="button" color="neutral" variant="ghost" :icon="passwordVisible ? 'i-lucide-eye-off' : 'i-lucide-eye'" :aria-label="t(passwordVisible ? 'auth.hidePassword' : 'auth.showPassword')" :aria-pressed="passwordVisible" @click="passwordVisible = !passwordVisible" /></template>
             </UInput>
           </UFormField>

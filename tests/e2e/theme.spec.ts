@@ -1,6 +1,7 @@
 import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 import type { Locator } from '@playwright/test'
+import { expectCompactFocus, expectFieldTextSeparated, expectModestCorners } from './helpers/ui-controls'
 
 async function expectReadableButton(button: Locator) {
   await expect(button).toBeEnabled()
@@ -24,13 +25,29 @@ for (const locale of ['ru', 'en']) {
   test(`${locale}: auth forms share the garden theme and remain usable`, async ({ page }, testInfo) => {
     const ru = locale === 'ru'
     await visitLocale(page, `/login`, locale)
+    await expect(page.locator('header .brand')).toHaveText('PetMemoreal')
+    await expect(page.locator('header .brand-mark')).toHaveCSS('border-top-width', '0px')
     const art = page.locator('.auth-background')
     await expect(art).toBeVisible()
     expect(await art.evaluate(element => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
     await expectReadableButton(page.locator('.auth-form button[type="submit"]'))
-    await page.getByLabel(ru ? 'Пароль' : 'Password', { exact: true }).fill('Garden-example-2026')
+    const password = page.getByLabel(ru ? 'Пароль' : 'Password', { exact: true })
+    await expectModestCorners(password)
+    await expectModestCorners(page.locator('.auth-form button[type="submit"]'))
+    await expectCompactFocus(password)
+    await expectFieldTextSeparated(password)
+    await password.fill('Garden-example-2026')
     const toggle = page.getByRole('button', { name: ru ? 'Показать пароль' : 'Show password' })
-    await toggle.focus()
+    await expectCompactFocus(toggle)
+    const textSpace = await password.evaluate((element) => {
+      const style = getComputedStyle(element)
+      const toggle = element.parentElement?.querySelector('button')
+      const bounds = element.getBoundingClientRect()
+      return { textEnd: bounds.right - Number.parseFloat(style.paddingRight), toggleStart: toggle?.getBoundingClientRect().left }
+    })
+    expect(textSpace.toggleStart).toBeDefined()
+    expect(textSpace.textEnd).toBeLessThanOrEqual(textSpace.toggleStart! - 2)
+    await page.screenshot({ path: testInfo.outputPath('password-focus.png'), animations: 'disabled' })
     await page.keyboard.press('Enter')
     await expect(page.getByLabel(ru ? 'Пароль' : 'Password', { exact: true })).toHaveAttribute('type', 'text')
     await page.getByRole('button', { name: ru ? 'Скрыть пароль' : 'Hide password' }).click()
@@ -42,7 +59,11 @@ for (const locale of ['ru', 'en']) {
     await expect(page).toHaveURL(new RegExp(`/register$`))
     await page.locator('.auth-form button[type="submit"]').click()
     await expect(page.getByText(ru ? 'Укажите ваше имя.' : 'Please enter your name.', { exact: true })).toBeVisible()
-    await expect(page.getByLabel(ru ? 'Ваше имя' : 'Your name', { exact: true })).toBeFocused()
+    const invalidName = page.getByLabel(ru ? 'Ваше имя' : 'Your name', { exact: true })
+    await expect(invalidName).toBeFocused()
+    await expect(invalidName).toHaveAttribute('aria-invalid', 'true')
+    await expectCompactFocus(invalidName)
+    await expectFieldTextSeparated(invalidName)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: testInfo.outputPath('register-errors.png'), fullPage: true, animations: 'disabled' })
 
@@ -62,6 +83,8 @@ for (const locale of ['ru', 'en']) {
 
   test(`${locale}: readable actions and responsive navigation to registration`, async ({ page }) => {
     await visitLocale(page, `/`, locale)
+    await expect(page.locator('header .brand')).toHaveText('PetMemoreal')
+    await expect(page.locator('header .brand-mark')).toHaveCSS('border-top-width', '0px')
     const create = page.locator('.hero-actions a').first()
     await expectReadableButton(create)
     await create.focus()

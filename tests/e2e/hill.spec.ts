@@ -84,6 +84,6 @@ test('hill scenery preserves the complete layout after rotation and a free place
   await expect(empty).toBeInViewport()
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/\/login\?redirect=/)
-  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/gardens?garden=hill&create=3')
+  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/memorials/new?garden=hill&place=3')
   expect(errors).toEqual([])
 })

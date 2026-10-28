@@ -14,10 +14,13 @@ corepack pnpm test:unit
 corepack pnpm build
 corepack pnpm exec playwright install chromium
 corepack pnpm test:e2e
+corepack pnpm exec playwright test --config=playwright.outage.config.ts
 corepack pnpm test:vercel
 corepack pnpm build:vercel
 ```
 
-Lint, typecheck, unit-тесты и обе сборки не требуют запущенной базы или секретов. Браузерным тестам нужны PostgreSQL и Mailpit: локально запустите `docker compose up -d postgres mailpit`, настройки базы берутся из `.env`. Playwright создаёт временную БД, применяет миграции и удаляет её после прогона; пользователь PostgreSQL должен иметь право `CREATEDB`. Сборки и typecheck выполняйте последовательно; `build:vercel` запускайте после браузерных тестов, которым нужна обычная Node-сборка.
+Lint, typecheck, unit-тесты и обе сборки не требуют запущенной базы или секретов. Основным браузерным тестам, включая `playwright.ui.config.ts`, нужны PostgreSQL и Mailpit: локально запустите `docker compose up -d postgres mailpit`, настройки базы берутся из `.env`. Playwright создаёт временную БД, применяет миграции и удаляет её после прогона; пользователь PostgreSQL должен иметь право `CREATEDB`. Сборки и typecheck выполняйте последовательно; `build:vercel` запускайте после браузерных тестов, которым нужна обычная Node-сборка.
+
+`playwright.outage.config.ts` запускает отдельный сервер на порту 4176 с намеренно недоступной локальной PostgreSQL. Docker ему не нужен: проверяются лендинг и уведомление при отказе, SSR без JavaScript, сохранение cookies и восстановление переходов. Конфигурация изолирована от облачных подключений и включена в CI отдельным шагом.
 
 CI поднимает PostgreSQL 18.6 и Mailpit отдельными сервисами. Используются только тестовые учётные данные; секрет Better Auth генерируется на каждый запуск. Проверяются регистрация, письма, вход/выход, восстановление пароля, мемориалы, кабинет и лендинг на RU/EN и двух размерах экрана. Отдельно проверяются конкурентные ограничения авторизации и доверие к Vercel IP. Workflow не публикует приложение и не подключается к облачным сервисам. Проверка сидирования `db:test` остаётся отдельной: см. [локальные сервисы](local-services.md). Публикация описана в [Vercel + Neon + Resend](vercel-deployment.md).

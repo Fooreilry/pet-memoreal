@@ -7,6 +7,9 @@ import { expect, test as base } from '@playwright/test'
 import type { APIRequestContext, Locator, Page } from '@playwright/test'
 import { getDatabaseOptions } from '../../server/db/config'
 import { signInFixture } from './helpers/sign-in'
+import { expectCompactFocus, expectFieldTextSeparated, expectModestCorners } from './helpers/ui-controls'
+import { choosePetSpecies } from './helpers/pet-species'
+import { petSpecies } from '../../shared/pet-species'
 
 const password = 'Memorial-fixture-2026!'
 const origin = 'http://127.0.0.1:4173'
@@ -44,7 +47,7 @@ async function signIn(request: APIRequestContext, member: Member) {
 }
 
 async function revealPlace(page: Page, place: Locator) {
-  // Keyboard focus reveals a stable world slot even when the cover view clips it.
+  // Keyboard focus reveals a stable world slot after zooming or moving the camera.
   await page.locator('.canvas-wrapper').focus()
   await place.focus()
   await expect(place).toBeInViewport()
@@ -61,27 +64,41 @@ for (const locale of ['ru', 'en']) {
     if (isMobile) await empty.tap()
     else await empty.click()
     await expect(page).toHaveURL(new RegExp(`/login\\?redirect=`))
-    expect(new URL(page.url()).searchParams.get('redirect')).toBe(`/gardens?garden=lake&create=${place}`)
+    expect(new URL(page.url()).searchParams.get('redirect')).toBe(`/memorials/new?garden=lake&place=${place}`)
     const registration = page.locator('.auth-links').getByRole('link', { name: ru ? 'Создать аккаунт' : 'Create an account', exact: true })
-    expect(new URL((await registration.getAttribute('href'))!, origin).searchParams.get('redirect')).toBe(`/gardens?garden=lake&create=${place}`)
+    expect(new URL((await registration.getAttribute('href'))!, origin).searchParams.get('redirect')).toBe(`/memorials/new?garden=lake&place=${place}`)
     await page.getByLabel('Email', { exact: true }).fill(members.owner.email)
     await page.getByLabel(ru ? 'Пароль' : 'Password', { exact: true }).fill(password)
     await page.getByRole('button', { name: ru ? 'Войти' : 'Sign in', exact: true }).click()
-    await expect(page).toHaveURL(new RegExp(`/gardens\\?garden=lake&create=${place}$`))
-    await expect(page.getByRole('dialog')).toHaveAccessibleName(ru ? 'Создать место памяти' : 'Create a memorial')
-    await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-motion', 'paused')
+    await expect(page).toHaveURL(new URL(`/memorials/new?garden=lake&place=${place}`, origin).href)
+    await expect(page.getByTestId('memorial-create-page')).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(ru ? 'Создать место памяти' : 'Create a memorial')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.locator('.canvas-wrapper')).toHaveCount(0)
     await expect(page.getByTestId('creation-location')).toContainText(`${ru ? 'Место' : 'Place'} ${place}`)
     const anonymous = page.getByRole('checkbox', { name: ru ? 'Остаться анонимным' : 'Remain anonymous', exact: true })
     await expect(anonymous).not.toBeChecked()
-    await page.keyboard.press('Escape')
-    await expect(page.getByRole('dialog')).toHaveCount(0)
-    await expect(empty).toBeFocused()
-    if (!isMobile) await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-motion', 'running')
+    await page.getByTestId('memorial-create-cancel').click()
+    await expect(page).toHaveURL(new URL('/gardens?garden=lake', origin).href)
+    expect(await (await page.request.get('/api/memorials/mine')).json()).toEqual([])
+    await expect(empty).toBeEnabled()
     await page.getByTestId('garden-zoom-in').click()
     await revealPlace(page, empty)
     if (isMobile) await empty.tap()
     else await empty.click()
-    const submit = page.getByRole('button', { name: ru ? 'Сохранить место памяти' : 'Save memorial', exact: true })
+    await expect(page.getByTestId('memorial-create-form')).toBeVisible()
+    const submit = page.getByTestId('memorial-create-save')
+    const textarea = page.getByLabel(ru ? 'История питомца' : 'Your pet’s story', { exact: true })
+    await expectModestCorners(textarea)
+    await expectModestCorners(submit)
+    await expectModestCorners(anonymous, 4, 2)
+    await expectCompactFocus(anonymous)
+    await page.keyboard.press('Space')
+    await expect(anonymous).toBeChecked()
+    await page.keyboard.press('Space')
+    await expect(anonymous).not.toBeChecked()
+    await expectCompactFocus(textarea)
+    await expectFieldTextSeparated(textarea)
     await submit.click()
     const name = page.getByLabel(ru ? 'Имя питомца' : 'Pet’s name', { exact: true })
     const born = page.getByLabel(ru ? 'Год рождения' : 'Year of birth', { exact: true })
@@ -93,25 +110,53 @@ for (const locale of ['ru', 'en']) {
     await died.fill('2019')
     await story.fill('Тёплая память.\n<script>window.memorialXss=true</script>')
     await submit.click()
+    const species = page.getByTestId('memorial-species')
+    await expect(species).toHaveAttribute('aria-invalid', 'true')
+    await expect(page.getByText(ru ? 'Выберите вид животного.' : 'Please choose an animal type.', { exact: true })).toBeVisible()
+    await species.click()
+    const listbox = page.getByRole('listbox')
+    await expect(listbox.getByRole('option')).toHaveCount(petSpecies.length)
+    expect(await listbox.locator('.pet-species-icon').evaluateAll(icons => icons.map(icon => icon.getAttribute('data-species')))).toEqual([...petSpecies])
+    await page.screenshot({ path: testInfo.outputPath('animal-listbox.png'), animations: 'disabled' })
+    await page.getByPlaceholder(ru ? 'Найти животное' : 'Find an animal', { exact: true }).fill('zzzz-no-animal')
+    await expect(page.getByText(ru ? 'Ничего не найдено. Попробуйте другое название.' : 'No animals found. Try another name.', { exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await choosePetSpecies(page, locale, ru ? 'Аксолотль' : 'Cat', !isMobile)
+    await submit.click()
     await expect(page.getByText(ru ? 'Год ухода не может быть раньше года рождения.' : 'The year of passing cannot be earlier than the year of birth.', { exact: true })).toBeVisible()
     await died.fill('2025')
-    await expect(page.getByRole('combobox')).toHaveCount(0)
+    await expectModestCorners(species)
+    await expect(page.locator('select[name="gardenId"]')).toHaveCount(0)
     await expect(page.getByTestId('creation-location')).toContainText(ru ? 'Озеро' : 'Lake')
     // A failed save keeps the text and permits retry with the same request ID.
     await page.route('**/api/memorials', route => route.fulfill({ status: 503, json: { statusCode: 503, statusMessage: 'Unavailable' } }))
-    await submit.click()
+    const [failedRequest] = await Promise.all([
+      page.waitForRequest(request => new URL(request.url()).pathname === '/api/memorials' && request.method() === 'POST'),
+      submit.click()
+    ])
     await expect(page.getByRole('alert')).toBeVisible()
+    await expect(species).toContainText(ru ? 'Аксолотль' : 'Cat')
     await expect(story).toHaveValue('Тёплая память.\n<script>window.memorialXss=true</script>')
     await page.unroute('**/api/memorials')
     await page.screenshot({ path: testInfo.outputPath('memorial-form.png'), fullPage: true, animations: 'disabled' })
-    await submit.click()
+    const [saveRequest] = await Promise.all([
+      page.waitForRequest(request => new URL(request.url()).pathname === '/api/memorials' && request.method() === 'POST'),
+      submit.click()
+    ])
+    expect(saveRequest.postDataJSON().requestId).toBe(failedRequest.postDataJSON().requestId)
+    expect(saveRequest.postDataJSON().species).toBe(ru ? 'axolotl' : 'cat')
     await expect(page).toHaveURL(new RegExp(`/gardens\\?garden=lake&memorial=`))
     const id = new URL(page.url()).searchParams.get('memorial')!
     const dialog = page.getByRole('dialog')
     await expect(dialog).toHaveAccessibleName('Мой друг <Milo>')
+    await expectModestCorners(dialog, 16)
+    await expectModestCorners(dialog.locator('.memorial-return'))
+    await expectModestCorners(dialog.locator('.memorial-close'))
     await expect(dialog.locator('.memorial-location')).toContainText(`${ru ? 'Место' : 'Place'} ${place}`)
     await expect(empty).toHaveCount(0)
     await expect(dialog).toContainText('2020 — 2025')
+    await expect(dialog.locator('.memorial-emblem .pet-species-icon')).toHaveAttribute('data-species', ru ? 'axolotl' : 'cat')
+    await expect(dialog.locator('[data-slot="description"]')).toContainText(ru ? 'Аксолотль' : 'Cat')
     await expect(page.getByTestId('memorial-creator')).toHaveText(`${ru ? 'Создатель места:' : 'Created by:'} Memorial test`)
     await expect(dialog).toContainText('<script>window.memorialXss=true</script>')
     expect(await page.evaluate(() => Object.hasOwn(window, 'memorialXss'))).toBe(false)
@@ -121,6 +166,15 @@ for (const locale of ['ru', 'en']) {
     await expect(page.getByTestId('memorial-creator')).toContainText('Memorial test')
     await expect(page.getByTestId('garden-account-menu')).toHaveAttribute('data-authenticated', 'true')
     await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    if (isMobile) {
+      await page.locator('.canvas-wrapper').focus()
+      await page.getByTestId(`memorial-${id}`).focus()
+    } else {
+      await page.mouse.move(0, 0)
+      await page.getByTestId(`memorial-${id}`).hover()
+    }
+    await expect(page.getByTestId('memorial-summary').locator('.pet-species-icon')).toHaveAttribute('data-species', ru ? 'axolotl' : 'cat')
     await page.getByTestId('garden-account-menu').focus()
     await page.keyboard.press('Enter')
     await page.getByRole('menuitem', { name: ru ? 'Профиль' : 'Profile', exact: true }).click()
@@ -132,13 +186,14 @@ for (const locale of ['ru', 'en']) {
       const other = await guest.newPage()
       await visitLocale(other, `/gardens?garden=lake&memorial=${id}`, locale)
       await expect(other.getByRole('dialog')).toHaveAccessibleName('Мой друг <Milo>')
+      await expect(other.getByRole('dialog').locator('.pet-species-icon')).toHaveAttribute('data-species', ru ? 'axolotl' : 'cat')
       await expect(other.getByTestId('memorial-creator')).toContainText('Memorial test')
       const response = await other.request.get('/api/gardens/lake/memorials')
       expect(response.headers()['cache-control']).toContain('no-store')
       const records = await response.json()
       const saved = records.find((item: { id: string }) => item.id === id)
-      expect(saved).toMatchObject({ name: 'Мой друг <Milo>', gardenId: 'lake', place, born: 2020, died: 2025, creatorName: 'Memorial test' })
-      expect(Object.keys(saved).sort()).toEqual(['source', 'id', 'gardenId', 'place', 'name', 'born', 'died', 'story', 'species', 'creatorName'].sort())
+      expect(saved).toMatchObject({ name: 'Мой друг <Milo>', species: ru ? 'axolotl' : 'cat', gardenId: 'lake', place, born: 2020, died: 2025, creatorName: 'Memorial test' })
+      expect(Object.keys(saved).sort()).toEqual(['source', 'id', 'gardenId', 'place', 'name', 'born', 'died', 'story', 'species', 'creatorName', 'canEdit'].sort())
       expect((await other.request.get('/api/memorials/mine')).status()).toBe(401)
     } finally { await guest.close() }
   })
@@ -152,22 +207,26 @@ for (const locale of ['ru', 'en']) {
     const profileName = `Private ${randomUUID()}`
     const profile = await page.request.post('/api/auth/update-user', { headers: { origin }, data: { name: profileName, surname: 'Private surname' } })
     expect(profile.ok()).toBe(true)
+    // Old links now lead to the same full creation page.
     await visitLocale(page, `/gardens?garden=meadow&create=${place}`, locale)
-    const dialog = page.getByRole('dialog')
-    await expect(dialog).toHaveAccessibleName(ru ? 'Создать место памяти' : 'Create a memorial')
-    await dialog.getByLabel(ru ? 'Имя питомца' : 'Pet’s name', { exact: true }).fill('Тихая память')
-    await dialog.getByLabel(ru ? 'Год рождения' : 'Year of birth', { exact: true }).fill('2011')
-    await dialog.getByLabel(ru ? 'Год ухода' : 'Year of passing', { exact: true }).fill('2025')
-    await dialog.getByLabel(ru ? 'История питомца' : 'Your pet’s story', { exact: true }).fill('Память о нашем любимом друге.')
-    const anonymous = dialog.getByRole('checkbox', { name: ru ? 'Остаться анонимным' : 'Remain anonymous', exact: true })
+    await expect(page).toHaveURL(new URL(`/memorials/new?garden=meadow&place=${place}`, origin).href)
+    const form = page.getByTestId('memorial-create-form')
+    await expect(form).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await form.getByLabel(ru ? 'Имя питомца' : 'Pet’s name', { exact: true }).fill('Тихая память')
+    await choosePetSpecies(page, locale, ru ? 'Попугай' : 'Parrot')
+    await form.getByLabel(ru ? 'Год рождения' : 'Year of birth', { exact: true }).fill('2011')
+    await form.getByLabel(ru ? 'Год ухода' : 'Year of passing', { exact: true }).fill('2025')
+    await form.getByLabel(ru ? 'История питомца' : 'Your pet’s story', { exact: true }).fill('Память о нашем любимом друге.')
+    const anonymous = form.getByRole('checkbox', { name: ru ? 'Остаться анонимным' : 'Remain anonymous', exact: true })
     await expect(anonymous).not.toBeChecked()
     if (isMobile) await anonymous.tap()
     else { await anonymous.focus(); await page.keyboard.press('Space') }
     await expect(anonymous).toBeChecked()
-    const submit = dialog.getByRole('button', { name: ru ? 'Сохранить место памяти' : 'Save memorial', exact: true })
+    const submit = page.getByTestId('memorial-create-save')
     await page.route('**/api/memorials', route => route.fulfill({ status: 503, json: { statusCode: 503 } }))
     await submit.click()
-    await expect(dialog.getByRole('alert')).toBeVisible()
+    await expect(form.getByRole('alert')).toBeVisible()
     await expect(anonymous).toBeChecked()
     await page.unroute('**/api/memorials')
     await page.screenshot({ path: testInfo.outputPath('anonymous-form.png'), animations: 'disabled' })
@@ -178,6 +237,7 @@ for (const locale of ['ru', 'en']) {
     await expect(page).toHaveURL(new RegExp(`/gardens\\?garden=meadow&memorial=`))
     const url = page.url()
     const id = new URL(url).searchParams.get('memorial')!
+    const dialog = page.getByRole('dialog')
     await expect(dialog).toHaveAccessibleName('Тихая память')
     await expect(page.getByTestId('memorial-creator')).toHaveText(`${ru ? 'Создатель места:' : 'Created by:'} ${ru ? 'Анонимно' : 'Anonymous'}`)
     const payload = saveRequest.postDataJSON()
@@ -199,7 +259,7 @@ for (const locale of ['ru', 'en']) {
       const records = await (await other.request.get('/api/gardens/meadow/memorials')).json()
       const record = records.find((item: { id: string }) => item.id === id)
       expect(record.creatorName).toBeNull()
-      expect(Object.keys(record).sort()).toEqual(['source', 'id', 'gardenId', 'place', 'name', 'born', 'died', 'story', 'species', 'creatorName'].sort())
+      expect(Object.keys(record).sort()).toEqual(['source', 'id', 'gardenId', 'place', 'name', 'born', 'died', 'story', 'species', 'creatorName', 'canEdit'].sort())
       const json = JSON.stringify(record)
       for (const secret of [members.owner.id, members.owner.email, profileName, 'Private surname']) expect(json).not.toContain(secret)
       await expect(other.getByRole('dialog')).not.toContainText(profileName)
@@ -230,38 +290,109 @@ base('the anonymity migration preserves old records without changing the default
   }
 })
 
-test('a place taken during editing keeps the draft and displays the saved memorial after closing', async ({ page, members, browser }) => {
+base('the animal type migration preserves legacy memorials and constrains stored values', async ({ baseURL }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'Migration behavior does not depend on viewport')
+  const database = process.env.E2E_DATABASE
+  if (baseURL !== origin || !database || !/^petmemoreal_e2e_\d+_[a-f0-9]{8}$/.test(database)) throw new Error('Migration checks require the temporary E2E database')
+  const pool = new pg.Pool({ ...getDatabaseOptions(), database })
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await client.query('CREATE TEMP TABLE memorials (id integer) ON COMMIT DROP')
+    await client.query('INSERT INTO memorials (id) VALUES (1)')
+    await client.query(await readFile(new URL('../../drizzle/0007_pet_species.sql', import.meta.url), 'utf8'))
+    await client.query('INSERT INTO memorials (id) VALUES (2)')
+    expect((await client.query('SELECT id, species FROM memorials ORDER BY id')).rows).toEqual([{ id: 1, species: 'pet' }, { id: 2, species: 'pet' }])
+    for (const [index, species] of petSpecies.entries()) await client.query('INSERT INTO memorials (id, species) VALUES ($1, $2)', [index + 3, species])
+    expect((await client.query('SELECT species FROM memorials WHERE id > 2 ORDER BY id')).rows.map(row => row.species)).toEqual([...petSpecies])
+    for (const invalid of ['dragon', null]) {
+      await client.query('SAVEPOINT invalid_species')
+      await expect(client.query('INSERT INTO memorials (id, species) VALUES (100, $1)', [invalid])).rejects.toThrow()
+      await client.query('ROLLBACK TO SAVEPOINT invalid_species')
+    }
+  } finally {
+    await client.query('ROLLBACK')
+    client.release()
+    await pool.end()
+  }
+})
+
+test('a place taken while the creation page is open keeps the draft and returns to the occupied garden place', async ({ page, members, browser }) => {
   await signIn(page.request, members.owner)
   await visitLocale(page, '/gardens?garden=grove&create=3', 'en')
-  const dialog = page.getByRole('dialog')
-  await expect(dialog).toHaveAccessibleName('Create a memorial')
-  await dialog.getByLabel('Pet’s name', { exact: true }).fill('My friend')
-  await dialog.getByLabel('Year of birth', { exact: true }).fill('2010')
-  await dialog.getByLabel('Year of passing', { exact: true }).fill('2025')
-  await dialog.getByLabel('Your pet’s story', { exact: true }).fill('A memory that must not disappear.')
+  await expect(page).toHaveURL(new URL('/memorials/new?garden=grove&place=3', origin).href)
+  const form = page.getByTestId('memorial-create-form')
+  await expect(form).toBeVisible()
+  await form.getByLabel('Pet’s name', { exact: true }).fill('My friend')
+  await choosePetSpecies(page, 'en', 'Rabbit')
+  await form.getByLabel('Year of birth', { exact: true }).fill('2010')
+  await form.getByLabel('Year of passing', { exact: true }).fill('2025')
+  await form.getByLabel('Your pet’s story', { exact: true }).fill('A memory that must not disappear.')
   const other = await browser.newContext({ baseURL: origin })
   try {
     await signIn(other.request, members.other)
-    const saved = await other.request.post('/api/memorials', { headers: { origin }, data: { requestId: randomUUID(), gardenId: 'grove', place: 3, name: 'Another friend', born: 2010, died: 2025, story: 'A quiet memory.' } })
+    const saved = await other.request.post('/api/memorials', { headers: { origin }, data: { requestId: randomUUID(), gardenId: 'grove', place: 3, name: 'Another friend', species: 'dog', born: 2010, died: 2025, story: 'A quiet memory.' } })
     expect(saved.status()).toBe(201)
     const record = await saved.json()
-    await dialog.getByRole('button', { name: 'Save memorial', exact: true }).click()
-    await expect(dialog.getByRole('alert')).toContainText('This place has just been taken.')
-    await expect(dialog.getByLabel('Your pet’s story', { exact: true })).toHaveValue('A memory that must not disappear.')
+    await page.getByTestId('memorial-create-save').click()
+    await expect(form.getByRole('alert')).toContainText('This place has just been taken.')
+    await expect(form.getByLabel('Your pet’s story', { exact: true })).toHaveValue('A memory that must not disappear.')
     expect(await (await page.request.get('/api/memorials/mine')).json()).toEqual([])
-    await page.keyboard.press('Escape')
-    await expect(dialog).toHaveCount(0)
+    await page.getByTestId('memorial-create-conflict-back').click()
+    await expect(page).toHaveURL(new URL('/gardens?garden=grove', origin).href)
+    await expect(form).toHaveCount(0)
     await expect(page.getByTestId('empty-grove-3')).toHaveCount(0)
     const stone = page.getByTestId(`memorial-${record.id}`)
     await revealPlace(page, stone)
     await stone.click()
-    await expect(dialog).toHaveAccessibleName('Another friend')
+    await expect(page.getByRole('dialog')).toHaveAccessibleName('Another friend')
   } finally { await other.close() }
+})
+
+test('the creation page retries availability, returns without saving and handles occupied or invalid chosen places', async ({ page, members, isMobile }) => {
+  const place = isMobile ? 6 : 15
+  await signIn(page.request, members.owner)
+  await visitLocale(page, '/gardens?garden=grove', 'en')
+  const empty = page.getByTestId(`empty-grove-${place}`)
+  await expect(empty).toBeEnabled()
+  await revealPlace(page, empty)
+  await page.route('**/api/gardens/grove/memorials', route => route.fulfill({ status: 503, json: { statusCode: 503 } }))
+  if (isMobile) await empty.tap()
+  else await empty.click()
+  await expect(page.getByTestId('memorial-create-state')).toBeVisible()
+  await expect(page.getByTestId('memorial-create-form')).toHaveCount(0)
+  await page.unroute('**/api/gardens/grove/memorials')
+  await page.getByTestId('memorial-create-state').getByRole('button', { name: 'Try again', exact: true }).click()
+  const form = page.getByTestId('memorial-create-form')
+  await expect(form).toBeVisible()
+  await form.getByLabel('Pet’s name', { exact: true }).fill('A draft that was never saved')
+  await page.getByTestId('memorial-create-back').click()
+  await expect(page).toHaveURL(new URL('/gardens?garden=grove', origin).href)
+  expect(await (await page.request.get('/api/memorials/mine')).json()).toEqual([])
+
+  const created = await page.request.post('/api/memorials', { headers: { origin }, data: {
+    name: 'Already here', species: 'dog', born: 2010, died: 2025, story: 'This place is already a memory.', gardenId: 'grove', place, requestId: randomUUID()
+  } })
+  expect(created.status()).toBe(201)
+  const record = await created.json()
+  await visitLocale(page, `/memorials/new?garden=grove&place=${place}`, 'en')
+  await expect(page.getByTestId('memorial-create-state')).toBeVisible()
+  await expect(form).toHaveCount(0)
+  await page.getByTestId('memorial-create-existing').click()
+  await expect(page.getByRole('dialog')).toHaveAccessibleName('Already here')
+  expect(new URL(page.url()).searchParams.get('memorial')).toBe(record.id)
+
+  for (const query of ['garden=unknown&place=3', 'garden=grove&place=1', 'garden=grove&place=999', 'garden=grove&place=not-a-number']) {
+    await visitLocale(page, `/memorials/new?${query}`, 'en')
+    await expect(page.getByTestId('memorial-create-state')).toBeVisible()
+    await expect(form).toHaveCount(0)
+  }
+  expect(await (await page.request.get('/api/memorials/mine')).json()).toHaveLength(1)
 })
 
 test('creation API enforces authentication, validation, origin, allocation, idempotency and full capacity', async ({ request, members, browser }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'Server rules do not depend on viewport')
-  const data = { requestId: randomUUID(), name: '  Friend  ', born: 2012, died: 2025, story: '  A quiet memory.  ', gardenId: 'hill' }
+  const data = { requestId: randomUUID(), name: '  Friend  ', species: 'cat', born: 2012, died: 2025, story: '  A quiet memory.  ', gardenId: 'hill' }
   const post = (payload: unknown, headers = { origin }) => request.post('/api/memorials', { data: payload, headers })
   expect((await post(data)).status()).toBe(401)
   expect((await request.get('/api/gardens/unknown/memorials')).status()).toBe(404)
@@ -273,6 +404,7 @@ test('creation API enforces authentication, validation, origin, allocation, idem
   expect((await request.post('/api/memorials', { data: JSON.stringify(data), headers: { origin, 'content-type': 'text/plain' } })).status()).toBe(415)
   for (const invalid of [
     { ...data, name: ' ' }, { ...data, born: new Date().getUTCFullYear() + 1 }, { ...data, died: 2011 },
+    { ...data, species: 'dragon' }, { ...data, species: null }, { ...data, species: undefined },
     { ...data, gardenId: 'unknown' }, { ...data, story: '' }, { ...data, story: 'a'.repeat(5001) },
     { ...data, ownerId: members.other.id }, { ...data, place: 1 }, { ...data, place: 0 }, { ...data, place: 15 },
     { ...data, place: 3.5 }, { ...data, place: '3' }, { ...data, visibility: 'private' },
@@ -290,6 +422,7 @@ test('creation API enforces authentication, validation, origin, allocation, idem
   expect((await post({ ...data, name: 'Changed request' })).status()).toBe(409)
   expect((await post({ ...chosen, place: 5 })).status()).toBe(409)
   expect((await post({ ...chosen, isAnonymous: true })).status()).toBe(409)
+  expect((await post({ ...chosen, species: 'dog' })).status()).toBe(409)
   expect((await post({ ...chosen, requestId: randomUUID() })).status()).toBe(409)
   const competing = await Promise.all([post({ ...data, place: 5, requestId: randomUUID() }), post({ ...data, place: 5, requestId: randomUUID() })])
   expect(competing.map(response => response.status()).sort()).toEqual([201, 409])

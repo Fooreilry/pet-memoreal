@@ -112,7 +112,8 @@ for (const locale of ['ru', 'en']) {
           expect(response.headers()['cache-control']).toContain('no-store')
         }
         const gardenTarget = `/gardens?garden=lake&create=3`
-        for (const [redirect, target] of [[gardenTarget, gardenTarget], ['https://untrusted.example', `/account`]] as const) {
+        const creationTarget = `/memorials/new?garden=lake&place=3`
+        for (const [redirect, target] of [[gardenTarget, creationTarget], [creationTarget, creationTarget], ['https://untrusted.example', `/account`]] as const) {
           const query = new URLSearchParams({ redirect })
           const response = await page.request.get(`/login?${query}`, { maxRedirects: 0 })
           expect(response.status()).toBe(302)
@@ -158,19 +159,28 @@ for (const locale of ['ru', 'en']) {
   }
 }
 
-test('a failed home-session check shows 503 without pretending the member signed out', async ({ page, member }, testInfo) => {
+test('a failed home-session check returns to the landing without signing the member out and recovers during navigation', async ({ page, member }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'Session failure handling does not depend on viewport')
   await visitLocale(page, '/account', 'ru')
   await expect(page.getByTestId('profile-name')).toHaveText('Landing visitor')
   await page.route('**/api/me', route => route.fulfill({ status: 503, json: { statusCode: 503, statusMessage: 'Service unavailable' } }))
   await page.locator('.account-header .brand').click()
-  await expect(page.locator('.error-page .eyebrow')).toHaveText('PetMemoreal · 503')
-  await expect(page.locator('.landing, .auth-form, .account-page')).toHaveCount(0)
+  await expect(page).toHaveURL(new URL('/', origin).href)
+  await expect(page.locator('.landing')).toBeVisible()
+  await expect(page.getByTestId('service-unavailable-notice')).toContainText('Сад временно недоступен')
+  await expect(page.locator('.error-page, .auth-form, .account-page')).toHaveCount(0)
+  await page.locator('.hero-actions a').first().click()
+  await expect(page).toHaveURL(new URL('/', origin).href)
+  await expect(page.getByTestId('service-unavailable-notice')).toHaveCount(1)
   await page.unroute('**/api/me')
   const response = await page.request.get('/api/me')
   expect(response.status()).toBe(200)
   expect(await response.json()).toMatchObject({ id: member.id, email: member.email, role: 'user' })
-  await visitLocale(page, '/', 'ru')
+  await page.locator('.hero-actions a').first().click()
+  await expect(page).toHaveURL(new URL('/account', origin).href)
+  await expect(page.getByTestId('profile-name')).toHaveText('Landing visitor')
+  await expect(page.getByTestId('service-unavailable-notice')).toHaveCount(0)
+  await page.locator('.account-header .brand').click()
   await expect(page).toHaveURL(/\/gardens$/)
   await expect(page.getByTestId('garden-choices').getByRole('button')).toHaveCount(4)
 })

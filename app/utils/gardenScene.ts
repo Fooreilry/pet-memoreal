@@ -1,4 +1,4 @@
-import { Container, Graphics, Rectangle, Text } from 'pixi.js'
+import { Container, Graphics, Text } from 'pixi.js'
 import { demoGardens } from '../data/demoGardens'
 import type { GardenId } from '../data/demoGardens'
 import { getMemorialLayout } from '../data/demoMemorials'
@@ -58,12 +58,11 @@ function landscape(g: Graphics, garden: Garden, w: number, h: number, preview: b
   else if (garden.id === 'hill') (terrainOnly ? drawHillTerrain : drawHillLandscape)(g, w, h, preview)
   else (terrainOnly ? drawLakeTerrain : drawLakeLandscape)(g, w, h, preview)
   if (!terrainOnly) for (const plant of getGardenPlantLayout(w, h, garden.id, preview)) drawGardenPlant(g, plant)
-  if (preview) g.roundRect(8, 8, w - 16, h - 16, 24).stroke({ color: 0xd8d4ad, width: 1, alpha: 0.16 })
 }
 
 export function getGardenOverviewLayout(width: number, height: number) {
-  const gap = 26
-  const margin = 36
+  const gap = 14
+  const margin = 24
   const tileW = (width - margin * 2 - gap) / 2
   const tileH = (height - margin * 2 - gap) / 2
   return demoGardens.map((garden, index) => ({
@@ -75,39 +74,45 @@ export function getGardenOverviewLayout(width: number, height: number) {
   }))
 }
 
-export function createGardenScene(width: number, height: number, garden: Garden | undefined, t: Translate, onSelect: (id: GardenId) => void, saved: PublicMemorial[] = []) {
+export function createGardenScene(width: number, height: number, garden: Garden | undefined, t: Translate, saved: PublicMemorial[] = []) {
   const root = new Container()
   const staticArt = new Container()
   const chunks: { node: Container, bounds: GardenView }[] = []
+  const overviewTiles = new Map<GardenId, { scenery: Container, zoom: number, from: number, target: number, elapsed: number }>()
   root.addChild(staticArt)
   if (!garden) staticArt.addChild(new Graphics().roundRect(0, 0, width, height, 28).fill(0x142e2e))
   if (!garden) {
     getGardenOverviewLayout(width, height).forEach(({ garden: item, x, y, width: tileW, height: tileH }, index) => {
       const tile = new Container()
-      tile.position.set(x, y)
-      tile.eventMode = 'static'
-      tile.cursor = 'pointer'
-      tile.hitArea = new Rectangle(0, 0, tileW, tileH)
+      tile.pivot.set(tileW / 2, tileH / 2)
+      tile.position.set(x + tileW / 2, y + tileH / 2)
+      tile.eventMode = 'none'
+      const scenery = new Container()
+      scenery.pivot.set(tileW / 2, tileH / 2)
+      scenery.position.set(tileW / 2, tileH / 2)
+      scenery.eventMode = 'none'
       const art = new Graphics()
       landscape(art, item, tileW, tileH, true)
-      art.roundRect(10, tileH - 99, tileW - 20, 89, 20).fill({ color: 0x142e2c, alpha: 0.92 })
-      tile.addChild(art)
+      scenery.addChild(art)
+      scenery.cacheAsTexture({ resolution: 2, antialias: true })
+      tile.addChild(scenery)
+      const frame = new Graphics().roundRect(8, 8, tileW - 16, tileH - 16, 24).stroke({ color: 0xd8d4ad, width: 1, alpha: 0.16 })
+      tile.addChild(frame)
       label(tile, `0${index + 1}`, 23, 18, 18, 0xf5dfb2)
-      label(tile, t(`garden.names.${item.id}`), 27, tileH - 87, 30, 0xfaf5eb, true)
-      label(tile, t('garden.places', { count: item.count }), 27, tileH - 43, 18, 0xc9d5bf)
+      const captions = new Container()
+      captions.eventMode = 'none'
+      captions.addChild(new Graphics().roundRect(10, tileH - 99, tileW - 20, 89, 20).fill(0x142e2c))
+      label(captions, t(`garden.names.${item.id}`), 27, tileH - 87, 30, 0xfaf5eb, true)
+      label(captions, t('garden.places', { count: item.count }), 27, tileH - 43, 18, 0xc9d5bf)
+      // Cache only the small footer, not another full-card render texture.
+      captions.cacheAsTexture({ resolution: 2, antialias: true })
+      tile.addChild(captions)
       const mask = new Graphics().roundRect(0, 0, tileW, tileH, 28).fill(0xffffff)
       tile.addChild(mask)
       tile.mask = mask
-      // Cache artwork separately so the interactive border remains live when motion is paused.
-      tile.cacheAsTexture({ resolution: 2, antialias: true })
+      // Only the cached scenery moves beneath the fixed mask and caption layer.
       staticArt.addChild(tile)
-      const border = new Graphics().roundRect(tile.x + 1, tile.y + 1, tileW - 2, tileH - 2, 28).stroke({ color: 0xefc681, width: 3 })
-      border.eventMode = 'none'
-      border.visible = false
-      root.addChild(border)
-      tile.on('pointerover', () => { border.visible = true })
-      tile.on('pointerout', () => { border.visible = false })
-      tile.on('pointertap', () => onSelect(item.id))
+      overviewTiles.set(item.id, { scenery, zoom: 1, from: 1, target: 1, elapsed: 0 })
     })
   } else {
     const ground = new Graphics()
@@ -132,7 +137,6 @@ export function createGardenScene(width: number, height: number, garden: Garden 
         marker.circle(x, y - 4, 22).fill({ color: 0x183d32, alpha: 0.32 }).stroke({ color: 0xd6dfbc, width: 1.5, alpha: 0.6 })
         marker.moveTo(x - 7, y - 4).lineTo(x + 7, y - 4).moveTo(x, y - 11).lineTo(x, y + 3).stroke({ color: 0xe8e4c8, width: 2, alpha: 0.85 })
         node.addChild(marker)
-        label(node, t('creation.add'), x, y + 30, 18, 0xd5dfc7).anchor.set(0.5, 0)
       } else {
         flowers(marker, x - 33, y + 16, mood.flower, index + 1, 5)
         node.addChild(marker)
@@ -183,5 +187,38 @@ export function createGardenScene(width: number, height: number, garden: Garden 
     }
     return visible
   }
-  return { root, update, updateVisibility }
+  const hoverDuration = 220
+  function highlightOverview(id?: GardenId, immediate = false) {
+    let pending = false
+    for (const [gardenId, tile] of overviewTiles) {
+      const target = gardenId === id ? 1.065 : 1
+      if (tile.target !== target || immediate) {
+        tile.from = tile.zoom
+        tile.target = target
+        tile.elapsed = immediate ? hoverDuration : 0
+        if (immediate) {
+          tile.zoom = target
+          tile.scenery.scale.set(target)
+        }
+      }
+      pending ||= tile.zoom !== target
+    }
+    return pending
+  }
+  // A short UI animation can advance even while ambient motion is paused.
+  // The caller stops its RAF as soon as this returns false.
+  function advanceOverview(deltaMS: number) {
+    let pending = false
+    for (const tile of overviewTiles.values()) {
+      if (tile.zoom === tile.target) continue
+      tile.elapsed = Math.min(hoverDuration, tile.elapsed + Math.max(0, Math.min(deltaMS, 64)))
+      const progress = tile.elapsed / hoverDuration
+      const ease = 1 - (1 - progress) ** 3
+      tile.zoom = progress === 1 ? tile.target : tile.from + (tile.target - tile.from) * ease
+      tile.scenery.scale.set(tile.zoom)
+      pending ||= tile.zoom !== tile.target
+    }
+    return pending
+  }
+  return { root, update, updateVisibility, highlightOverview, advanceOverview }
 }

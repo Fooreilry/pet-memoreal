@@ -142,6 +142,6 @@ test('meadow insects obey pause and reduced motion while rotation and a free pla
   await expect(empty).toBeInViewport()
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/\/login\?redirect=/)
-  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/gardens?garden=meadow&create=3')
+  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/memorials/new?garden=meadow&place=3')
   expect(errors).toEqual([])
 })

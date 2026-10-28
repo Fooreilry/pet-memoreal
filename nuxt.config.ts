@@ -1,4 +1,6 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+import { petSpeciesIcons } from './app/data/petSpeciesIcons'
+
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: process.env.NODE_ENV === 'development' },
@@ -8,6 +10,14 @@ export default defineNuxtConfig({
   },
   devServer: { host: '127.0.0.1', port: 3000 },
   modules: ['@nuxt/ui', '@nuxtjs/i18n', '@nuxt/eslint'],
+  icon: {
+    clientBundle: {
+      icons: [
+        ...Object.values(petSpeciesIcons).flatMap(drawing => 'icon' in drawing ? [drawing.icon.replace('i-lucide-', 'lucide:')] : []),
+        'lucide:cloud-rain', 'lucide:sun', 'lucide:sun-medium', 'lucide:cloud-sun'
+      ]
+    }
+  },
   css: ['~/assets/css/main.css'],
   colorMode: { preference: 'light', fallback: 'light' },
   routeRules: {

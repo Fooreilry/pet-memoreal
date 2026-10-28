@@ -12,7 +12,7 @@ export function getDemoMemorials(gardenId: GardenId) {
       gardenId,
       place,
       profile: index % 8,
-      species: index % 2 === 0 ? 'dog' : 'cat',
+      species: index % 2 === 0 ? 'dog' as const : 'cat' as const,
       born: 2011 + index % 5,
       died: 2023 + index % 3
     }

@@ -5,6 +5,7 @@ import { hashPassword } from 'better-auth/crypto'
 import { expect, test as base } from '@playwright/test'
 import { getDatabaseOptions } from '../../server/db/config'
 import { signInFixture } from './helpers/sign-in'
+import { expectCompactFocus, expectFieldTextSeparated, expectModestCorners } from './helpers/ui-controls'
 
 const origin = 'http://127.0.0.1:4173'
 const test = base.extend<{ member: { id: string, email: string } }>({
@@ -38,7 +39,22 @@ for (const locale of ['ru', 'en']) {
     await expect(page.getByTestId('profile-surname')).toHaveText(ru ? 'Не указана' : 'Not provided')
     await expect(page.locator('.account-profile')).toContainText(member.email)
     await expect(page.getByRole('heading', { name: ru ? 'Здесь будут ваши места памяти' : 'Your memorials will be here' })).toBeVisible()
-    await expect(page.getByRole('link', { name: ru ? 'Создать место памяти' : 'Create a memorial', exact: true })).toHaveAttribute('href', `/gardens`)
+    await expect(page.getByRole('link', { name: ru ? 'Создать место памяти' : 'Create a memorial', exact: true })).toHaveCount(0)
+    await expect(page.locator('.account-heading p, .account-session h2, .account-session p')).toHaveCount(0)
+    await expect(page.locator('.account-header .brand')).toHaveText('PetMemoreal')
+    await expect(page.locator('.account-header .brand-mark')).toHaveCSS('border-top-width', '0px')
+    const avatar = page.locator('.account-avatar')
+    await expect(avatar).toHaveCSS('border-radius', '50%')
+    const avatarBounds = (await avatar.boundingBox())!
+    expect(avatarBounds.width).toBe(avatarBounds.height)
+    const exit = page.getByRole('button', { name: ru ? 'Выйти' : 'Sign out', exact: true })
+    await expect(exit).toBeEnabled()
+    const logoutIsRed = await exit.evaluate((button) => {
+      const [red = 0, green = 0, blue = 0] = (getComputedStyle(button).backgroundColor.match(/[\d.]+/g) || []).map(Number)
+      return red > green * 2 && red > blue * 2
+    })
+    expect(logoutIsRed).toBe(true)
+    await expect(exit).toHaveCSS('color', 'rgb(255, 255, 255)')
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: testInfo.outputPath('account-empty.png'), fullPage: true })
 
@@ -48,9 +64,19 @@ for (const locale of ['ru', 'en']) {
     const name = dialog.getByLabel(ru ? 'Имя' : 'First name', { exact: true })
     const surname = dialog.getByLabel(ru ? 'Фамилия' : 'Last name', { exact: true })
     const save = dialog.getByRole('button', { name: ru ? 'Сохранить' : 'Save', exact: true })
+    await expectModestCorners(dialog, 16)
+    await expectModestCorners(name)
+    await expectModestCorners(save)
+    await expectCompactFocus(name)
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(edit).toBeFocused()
+    await edit.click()
     await name.fill(' ')
     await save.click()
     await expect(name).toBeFocused()
+    await expectCompactFocus(name)
+    await expectFieldTextSeparated(name)
     await expect(dialog.getByText(ru ? 'Укажите ваше имя.' : 'Please enter your name.', { exact: true })).toBeVisible()
     await name.fill('  Александра  ')
     await surname.fill('  Иванова  ')
@@ -82,7 +108,6 @@ for (const locale of ['ru', 'en']) {
     await page.reload()
     await expect(page.getByTestId('profile-surname')).toHaveText(ru ? 'Не указана' : 'Not provided')
 
-    const exit = page.getByRole('button', { name: ru ? 'Выйти' : 'Sign out', exact: true })
     const bounds = await page.locator('.account-memorials').boundingBox()
     const logoutBounds = await exit.boundingBox()
     expect(logoutBounds!.y).toBeGreaterThan(bounds!.y + bounds!.height)
@@ -99,11 +124,12 @@ for (const locale of ['ru', 'en']) {
 
   test(`${locale}: saved memorial cards, list retry and garden navigation`, async ({ page, member }, testInfo) => {
     const ru = locale === 'ru'
-    const created = await page.request.post('/api/memorials', { headers: { origin }, data: { name: 'Мило', born: 2014, died: 2025, story: 'Любил солнце и всегда встречал нас у двери.', gardenId: 'grove', requestId: randomUUID() } })
+    const created = await page.request.post('/api/memorials', { headers: { origin }, data: { name: 'Мило', species: 'dog', born: 2014, died: 2025, story: 'Любил солнце и всегда встречал нас у двери.', gardenId: 'grove', requestId: randomUUID() } })
     expect(created.status()).toBe(201)
     const memorial = await created.json()
     expect(member.id).toBeTruthy()
     await visitLocale(page, `/gardens`, locale)
+    await expect(page.getByTestId('garden-home')).toHaveText('PetMemoreal')
     await page.route('**/api/memorials/mine', route => route.fulfill({ status: 503, json: { statusMessage: 'Unavailable' } }))
     // Client navigation allows the failed API response to be controlled without mocking SSR.
     if (testInfo.project.name === 'mobile') await page.getByTestId('garden-account-menu').tap()
@@ -118,6 +144,7 @@ for (const locale of ['ru', 'en']) {
     await expect(list.getByRole('listitem')).toHaveCount(1)
     await expect(list).toContainText('Мило')
     await expect(list).toContainText('2014 — 2025')
+    await expect(list.locator('.account-card-open')).toHaveText(ru ? 'Перейти к месту' : 'Go to memorial')
     await expect(list).toContainText(ru ? 'Роща' : 'Grove')
     await expect(list).toContainText('Любил солнце')
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)

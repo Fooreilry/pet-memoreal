@@ -10,7 +10,7 @@ process.env.E2E_DATABASE ??= `petmemoreal_e2e_${process.pid}_${randomBytes(4).to
 
 export default defineConfig({
   testDir: './tests/e2e',
-  testIgnore: '**/vercel-runtime.spec.ts',
+  testIgnore: ['**/vercel-runtime.spec.ts', '**/service-outage.spec.ts'],
   globalSetup: './tests/e2e/setup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

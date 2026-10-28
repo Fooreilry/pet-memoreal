@@ -79,7 +79,7 @@ test('successful sign-out and sign-in renew scenery across open tabs while a sav
 
   // Other creation fixtures use meadow places 3 and 4; reserve two separate places.
   const place = isMobile ? 11 : 10
-  const created = await page.request.post('/api/memorials', { headers: { origin }, data: { name: 'A familiar friend', born: 2010, died: 2024,
+  const created = await page.request.post('/api/memorials', { headers: { origin }, data: { name: 'A familiar friend', species: 'dog', born: 2010, died: 2024,
     story: 'The garden changes softly, but this memory remains in its own corner.', gardenId: 'meadow', place, requestId: randomUUID() } })
   expect(created.status()).toBe(201)
   const memorial = await created.json()

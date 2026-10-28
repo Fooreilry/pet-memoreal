@@ -80,7 +80,7 @@ async function signOut() {
     <a href="#account-main" class="skip-link">{{ t('nav.skip') }}</a>
     <header class="account-header">
       <div class="account-container account-header-inner">
-        <NuxtLink :to="localePath('/')" class="brand"><span class="brand-mark"><UIcon name="i-lucide-sprout" aria-hidden="true" /></span><span>PetMemoreal<span class="brand-dot">.</span></span></NuxtLink>
+        <NuxtLink :to="localePath('/')" class="brand"><span class="brand-mark"><UIcon name="i-lucide-sprout" aria-hidden="true" /></span><span>PetMemoreal</span></NuxtLink>
         <nav :aria-label="t('account.navigation')">
           <NuxtLink :to="localePath('/gardens')" class="account-garden-link"><UIcon name="i-lucide-trees" aria-hidden="true" /><span>{{ t('garden.enter') }}</span></NuxtLink>
           <LanguageSwitch />
@@ -90,9 +90,7 @@ async function signOut() {
 
     <main id="account-main" class="account-container account-main">
       <div class="account-heading">
-        <p class="eyebrow">PetMemoreal / {{ t('account.personalSpace') }}</p>
         <h1>{{ t('auth.account') }}</h1>
-        <p>{{ t('account.intro') }}</p>
       </div>
 
       <AppState v-if="error" kind="error" retry @retry="refresh()" />
@@ -115,7 +113,6 @@ async function signOut() {
       <section class="account-memorials" aria-labelledby="memorials-heading">
         <div class="account-section-heading account-memorials-heading">
           <div><h2 id="memorials-heading">{{ t('creation.myPlaces') }}<span v-if="!memorialError && memorialStatus !== 'pending'" class="account-count">{{ memorials.length }}</span></h2><p>{{ t('account.memorialsIntro') }}</p></div>
-          <UButton :to="localePath('/gardens')" icon="i-lucide-plus" size="lg">{{ t('creation.title') }}</UButton>
         </div>
         <AppState v-if="memorialStatus === 'pending'" kind="loading" />
         <AppState v-else-if="memorialError" kind="error" retry @retry="refreshMemorials()" />
@@ -139,8 +136,7 @@ async function signOut() {
       </section>
 
       <footer class="account-session">
-        <div><h2>{{ t('account.session') }}</h2><p>{{ t('account.signOutNote') }}</p></div>
-        <UButton :loading="busy" :disabled="!ready || saving" variant="outline" color="neutral" icon="i-lucide-log-out" size="lg" @click="signOut">{{ t('auth.signOut') }}</UButton>
+        <UButton :loading="busy" :disabled="!ready || saving" color="error" class="account-sign-out" icon="i-lucide-log-out" size="lg" @click="signOut">{{ t('auth.signOut') }}</UButton>
         <UAlert v-if="failed" :title="t('auth.errors.generic')" color="error" role="alert" class="account-logout-error" />
       </footer>
     </main>
@@ -171,10 +167,9 @@ async function signOut() {
 .account-garden-link .iconify { width: 20px; height: 20px; }
 .account-main { padding-block: 54px 32px; }
 .account-heading { margin-bottom: 34px; }
-.account-heading h1 { margin-top: 12px; color: var(--ui-text-highlighted); font: 400 clamp(36px, 4vw, 50px)/1.2 var(--font-display); letter-spacing: -1.5px; }
-.account-heading > p:last-child { margin-top: 14px; max-width: 590px; font-size: 15px; line-height: 1.8; }
+.account-heading h1 { color: var(--ui-text-highlighted); font: 400 clamp(36px, 4vw, 50px)/1.2 var(--font-display); letter-spacing: -1.5px; }
 .account-profile { display: flex; align-items: flex-start; gap: 28px; border: 1px solid #dfdacb; border-radius: 22px; padding: 30px; background: #fffdf7; }
-.account-avatar { display: grid; place-items: center; flex-shrink: 0; width: 72px; height: 80px; border-radius: 45% 45% 12px 12px; background: #e8eddc; color: #315d46; font: 30px var(--font-display); }
+.account-avatar { display: grid; place-items: center; flex-shrink: 0; width: 72px; height: 72px; border-radius: 50%; background: #e8eddc; color: #315d46; font: 30px var(--font-display); }
 .account-profile-content { flex: 1; min-width: 0; }
 .account-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .account-section-heading h2 { font-size: 26px; letter-spacing: -0.6px; }
@@ -209,13 +204,13 @@ async function signOut() {
 .account-card-years { margin-top: 8px; font-size: 12px; color: var(--ui-text-muted); }
 .account-card-story { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; margin-block: 16px 22px; font-size: 14px; line-height: 1.8; }
 .account-card-open { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 16px; border-top: 1px solid #e8e5d9; font-size: 13px; color: #315d46; }
-.account-session { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px; padding-block: 26px 12px; border-top: 1px solid #dfdacb; }
-.account-session h2 { font: 22px var(--font-display); letter-spacing: -0.3px; }
-.account-session p { margin-top: 7px; font-size: 13px; line-height: 1.7; }
+.account-session { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 20px; padding-block: 26px 12px; border-top: 1px solid #dfdacb; }
+.account-sign-out { background: #b33434; color: #fff; }
+.account-sign-out:hover { background: #982b2b; }
 .account-logout-error { flex-basis: 100%; }
 .account-profile-form { display: grid; gap: 22px; }
 .account-form-actions { display: flex; justify-content: flex-end; gap: 12px; }
-.account-section-heading > button, .account-memorials-heading > a, .account-session > button, .account-form-actions > button { min-height: 44px; }
+.account-section-heading > button, .account-session > button, .account-form-actions > button { min-height: 44px; }
 @media (max-width: 1000px) {
   .account-details { grid-template-columns: 1fr 1fr; }
   .account-email { grid-column: 1 / -1; }
@@ -231,7 +226,7 @@ async function signOut() {
   .account-main { padding-top: 30px; }
   .account-heading { margin-bottom: 24px; }
   .account-profile { padding: 22px; gap: 18px; flex-wrap: wrap; }
-  .account-avatar { width: 50px; height: 54px; font-size: 23px; }
+  .account-avatar { width: 50px; height: 50px; font-size: 23px; }
   .account-profile-content { flex-basis: 100%; }
   .account-section-heading { gap: 10px; }
   .account-section-heading h2 { font-size: 24px; }

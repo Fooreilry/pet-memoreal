@@ -68,6 +68,9 @@ jobs:
       - name: Browser tests
         run: corepack pnpm test:e2e
 
+      - name: Service outage fallback tests
+        run: corepack pnpm exec playwright test --config=playwright.outage.config.ts
+
       - name: Vercel runtime tests
         run: corepack pnpm test:vercel
 

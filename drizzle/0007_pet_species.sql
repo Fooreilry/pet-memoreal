@@ -1,0 +1,2 @@
+ALTER TABLE "memorials" ADD COLUMN "species" text DEFAULT 'pet' NOT NULL;--> statement-breakpoint
+ALTER TABLE "memorials" ADD CONSTRAINT "memorials_species_check" CHECK ("memorials"."species" in ('dog', 'cat', 'rabbit', 'hamster', 'guineaPig', 'rat', 'mouse', 'chinchilla', 'ferret', 'hedgehog', 'bird', 'parrot', 'fish', 'turtle', 'snake', 'lizard', 'frog', 'axolotl', 'spider', 'snail', 'pet'));

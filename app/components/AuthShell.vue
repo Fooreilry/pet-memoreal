@@ -11,7 +11,7 @@ useHead({ htmlAttrs: { lang: () => locale.value }, meta: [{ name: 'robots', cont
     <img class="auth-background" src="/images/34a7d373-ee89-4a01-a2e3-7fc7b31039c3.jpg" alt="" width="1024" height="572" fetchpriority="high">
     <a href="#auth-main" class="skip-link">{{ t('nav.skip') }}</a>
     <header class="site-header shell">
-      <NuxtLink :to="localePath('/')" class="brand"><span class="brand-mark"><UIcon name="i-lucide-sprout" aria-hidden="true" /></span><span>PetMemoreal<span class="brand-dot">.</span></span></NuxtLink>
+      <NuxtLink :to="localePath('/')" class="brand"><span class="brand-mark"><UIcon name="i-lucide-sprout" aria-hidden="true" /></span><span>PetMemoreal</span></NuxtLink>
       <div class="auth-header-actions">
         <NuxtLink :to="localePath('/')" class="auth-home-link"><UIcon name="i-lucide-arrow-left" aria-hidden="true" />{{ t('auth.home') }}</NuxtLink>
         <LanguageSwitch />

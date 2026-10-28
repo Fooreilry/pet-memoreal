@@ -3,6 +3,72 @@ import { expect, test } from '@playwright/test'
 
 const gardens = ['meadow', 'lake', 'grove', 'hill'] as const
 
+test('overview hover zooms scenery inside fixed compact cards while captions stay still', async ({ page }, testInfo) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await visitLocale(page, '/gardens', 'en')
+  const first = page.getByTestId('garden-choice-meadow')
+  const second = page.getByTestId('garden-choice-lake')
+  await expect(first).toBeVisible()
+  const canvas = page.locator('canvas')
+  const before = await canvas.screenshot()
+  const size = (await first.boundingBox())!
+  const nextSize = (await second.boundingBox())!
+  const scale = Number(await page.locator('.canvas-wrapper').getAttribute('data-projection-scale'))
+  expect(nextSize.x - size.x - size.width).toBeLessThan(20 * scale)
+  const captionClip = {
+    x: Math.ceil(size.x + 20 * scale),
+    y: Math.ceil(size.y + size.height - 90 * scale),
+    width: Math.floor(size.width - 40 * scale),
+    height: Math.floor(70 * scale)
+  }
+  const caption = await page.screenshot({ clip: captionClip })
+  await first.hover()
+  await expect(first).toHaveClass(/garden-choice-active/)
+  await expect(first).toHaveCSS('border-top-width', '0px')
+  expect(await first.boundingBox()).toEqual(size)
+  await expect.poll(async () => Buffer.compare(before, await canvas.screenshot())).not.toBe(0)
+  expect(Buffer.compare(caption, await page.screenshot({ clip: captionClip }))).toBe(0)
+  await page.screenshot({ path: testInfo.outputPath('garden-hover.png'), animations: 'disabled' })
+  await second.hover()
+  await expect(second).toHaveClass(/garden-choice-active/)
+  await expect(first).not.toHaveClass(/garden-choice-active/)
+  await page.mouse.move(0, 0)
+  await expect(page.locator('.garden-choice-active')).toHaveCount(0)
+  await expect.poll(async () => Buffer.compare(before, await canvas.screenshot())).toBe(0)
+  await first.focus()
+  await expect(first).toBeFocused()
+  await expect(first).toHaveCSS('outline-width', '2px')
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/\/gardens\?garden=meadow$/)
+})
+
+test('scenery zoom animates with ambient motion paused and stops after hover settles', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await visitLocale(page, '/gardens?garden=meadow', 'en')
+  await page.getByTestId('garden-motion').click()
+  await page.getByTestId('garden-switch').click()
+  await page.getByTestId('garden-overview').focus()
+  await page.mouse.move(0, 0)
+  await page.keyboard.press('Enter')
+  const scene = page.locator('.canvas-wrapper')
+  await expect(scene).toHaveAttribute('data-state', 'ready')
+  await expect(scene).toHaveAttribute('data-motion', 'paused')
+  const first = page.getByTestId('garden-choice-meadow')
+  const canvas = page.locator('canvas')
+  const initial = await canvas.screenshot()
+  const size = (await first.boundingBox())!
+  await first.hover()
+  await expect.poll(async () => Buffer.compare(initial, await canvas.screenshot())).not.toBe(0)
+  // The short interaction finishes without starting a permanent animation loop.
+  await page.waitForTimeout(320)
+  const settled = await canvas.screenshot()
+  await page.waitForTimeout(120)
+  expect(Buffer.compare(settled, await canvas.screenshot())).toBe(0)
+  expect(await first.boundingBox()).toEqual(size)
+  await page.mouse.move(0, 0)
+  await expect.poll(async () => Buffer.compare(initial, await canvas.screenshot())).toBe(0)
+})
+
 for (const locale of ['ru', 'en']) {
   test(`${locale}: the garden overview has four tiles, selection works with touch and keyboard, and Back restores the overview`, async ({ page }, testInfo) => {
     const errors: string[] = []

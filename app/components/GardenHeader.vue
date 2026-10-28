@@ -116,7 +116,7 @@ onBeforeUnmount(() => {
 
 <template>
   <header class="garden-site-header" data-testid="garden-header">
-    <NuxtLink :to="localePath('/')" class="brand" aria-label="PetMemoreal" data-testid="garden-home"><span class="brand-mark"><UIcon name="i-lucide-sprout" aria-hidden="true" /></span><span>PetMemoreal<span class="brand-dot">.</span></span></NuxtLink>
+    <NuxtLink :to="localePath('/')" class="brand" aria-label="PetMemoreal" data-testid="garden-home"><span class="brand-mark"><UIcon name="i-lucide-sprout" aria-hidden="true" /></span><span>PetMemoreal</span></NuxtLink>
     <div class="garden-header-actions">
       <LanguageSwitch />
       <div ref="accountMenu" class="garden-account-menu" @pointerenter="pointerEnter" @pointerleave="pointerLeave" @keydown="menuKeydown" @pointerdown.capture="directInteraction" @focusout="focusLeft">
@@ -140,18 +140,18 @@ onBeforeUnmount(() => {
 .garden-site-header { position: relative; z-index: 10; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 80px; padding: calc(12px + env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) 12px max(24px, env(safe-area-inset-left)); }
 .garden-header-actions { display: flex; align-items: center; gap: 12px; }
 .garden-account-menu { position: relative; }
-.garden-account-trigger { display: grid; place-items: center; width: 46px; height: 46px; padding: 0; border: 1px solid #ccd2bf; border-radius: 50%; color: #244b3b; background: #e9eddf; cursor: pointer; }
+.garden-account-trigger { display: grid; place-items: center; width: 46px; height: 46px; padding: 0; border: 1px solid #ccd2bf; border-radius: var(--control-radius); color: #244b3b; background: #e9eddf; cursor: pointer; }
 .garden-account-trigger:hover, .garden-account-trigger[aria-expanded='true'] { background: #dce5cf; }
-.garden-account-trigger:focus-visible { outline: 2px solid #ac7324; outline-offset: 3px; }
+.garden-account-trigger:focus-visible { outline: var(--focus-width) solid #ac7324; outline-offset: var(--focus-offset); }
 .garden-account-trigger > .iconify { width: 22px; height: 22px; }
-.garden-account-dropdown { position: absolute; z-index: 20; top: calc(100% + 8px); right: 0; width: min(208px, calc(100vw - 28px)); padding: 8px; border: 1px solid #d8d5c3; border-radius: 16px; color: #244b3b; background: #fffcf5; box-shadow: 0 12px 36px #102f2c24; }
-.garden-account-dropdown > a, .garden-account-dropdown > button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 10px 12px; border-radius: 10px; text-align: left; font-size: 14px; cursor: pointer; }
+.garden-account-dropdown { position: absolute; z-index: 20; top: calc(100% + 8px); right: 0; width: min(208px, calc(100vw - 28px)); padding: 8px; border: 1px solid #d8d5c3; border-radius: 12px; color: #244b3b; background: #fffcf5; box-shadow: 0 12px 36px #102f2c24; }
+.garden-account-dropdown > a, .garden-account-dropdown > button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 10px 12px; border-radius: 6px; text-align: left; font-size: 14px; cursor: pointer; }
 .garden-account-dropdown > a:hover, .garden-account-dropdown > button:hover, .garden-account-dropdown > a:focus, .garden-account-dropdown > button:focus { outline: none; background: #e9eddf; }
 .garden-account-dropdown .iconify { width: 19px; height: 19px; color: #527355; flex-shrink: 0; }
 @media (max-width: 600px) {
   .garden-site-header { min-height: 68px; padding: calc(10px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 10px max(14px, env(safe-area-inset-left)); }
   .brand { gap: 8px; font-size: 22px; }
-  .brand-mark { width: 30px; height: 35px; }
+  .brand-mark { width: 30px; height: 30px; }
   .garden-header-actions { gap: 4px; }
   .garden-account-trigger { width: 44px; height: 44px; }
 }

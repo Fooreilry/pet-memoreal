@@ -27,21 +27,89 @@ test.beforeEach(async ({ page }) => {
 
 const gardens = ['meadow', 'lake', 'grove', 'hill'] as const
 
-test('free places wait for a successful load and keyboard selection keeps the chosen place through sign-in', async ({ page }) => {
+test('free places wait for a successful load and keyboard selection preserves the creation page through sign-in', async ({ page }, testInfo) => {
   let unavailable = true
   await page.route('**/api/gardens/meadow/memorials', route => route.fulfill(unavailable ? { status: 503, json: { statusMessage: 'Unavailable' } } : { json: [] }))
-  await page.route('**/api/auth/get-session', route => route.fulfill({ json: null }))
+  await page.route('**/api/me', route => route.fulfill({ status: 401, json: { statusMessage: 'Unauthorized' } }))
   await visitLocale(page, '/gardens?garden=meadow', 'en')
   await expect(page.getByRole('alert')).toContainText('adding a memorial is unavailable')
   const empty = page.getByTestId('empty-meadow-3')
-  await expect(empty).toBeDisabled()
+  await expect(empty).toHaveCount(0)
+  await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'error')
   unavailable = false
   await page.getByRole('alert').getByRole('button').click()
   await expect(empty).toBeEnabled()
+  await expect(empty).not.toHaveAttribute('aria-haspopup', 'dialog')
+  await revealTarget(empty)
+  await empty.evaluate(element => (element as HTMLElement).blur())
+  await empty.hover()
+  await expect(empty).toHaveCSS('border-top-width', '0px')
+  await expect(empty).toHaveCSS('outline-style', 'none')
+  await expect(empty).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await page.mouse.move(0, 0)
+  await page.screenshot({ path: testInfo.outputPath('garden-places.png'), animations: 'disabled' })
+  await page.keyboard.press('Tab')
   await empty.focus()
+  await expect(empty).toHaveCSS('outline-width', '2px')
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/\/login\?redirect=/)
-  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/gardens?garden=meadow&create=3')
+  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/memorials/new?garden=meadow&place=3')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const registration = page.locator('.auth-links').getByRole('link', { name: 'Create an account', exact: true })
+  expect(new URL((await registration.getAttribute('href'))!, page.url()).searchParams.get('redirect')).toBe('/memorials/new?garden=meadow&place=3')
+})
+
+test('loading waits for every saved place before revealing the garden and its controls', async ({ page }, testInfo) => {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const id = '8bca0797-5d6c-4b68-b243-9c41c7fe0003'
+  await page.route('**/api/gardens/lake/memorials', async (route) => {
+    await gate
+    await route.fulfill({ json: [{ id, gardenId: 'lake', place: 3, name: 'Patient friend', born: 2010, died: 2024, story: 'A memory loaded together with the garden.', source: 'saved', species: 'pet', creatorName: null, canEdit: false }] })
+  })
+  try {
+    await visitLocale(page, '/gardens?garden=lake', 'en')
+    const view = page.locator('.canvas-wrapper')
+    await expect(view).toHaveAttribute('data-state', 'loading')
+    await expect(view).toHaveAttribute('aria-busy', 'true')
+    await expect(page.getByTestId('garden-loading')).toContainText('Gathering stories')
+    await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '1')
+    await expect(page.locator('.canvas-host')).toBeHidden()
+    await expect(page.locator('.memorial-hit, .camera-toolbar, .garden-hud')).toHaveCount(0)
+    await page.screenshot({ path: testInfo.outputPath('garden-loading.png'), animations: 'disabled' })
+    release()
+    await expect(view).toHaveAttribute('data-state', 'ready')
+    await expect(view).toHaveAttribute('aria-busy', 'false')
+    await expect(page.getByTestId('garden-loading')).toHaveCount(0)
+    await expect(page.getByTestId(`memorial-${id}`)).toBeVisible()
+    await expect(page.getByTestId('empty-lake-3')).toHaveCount(0)
+    await expect(page.locator('.memorial-hit')).toHaveCount(10)
+    await expect(page.locator('.camera-toolbar')).toBeVisible()
+  } finally { release() }
+})
+
+test('leaving a loading garden ignores its late places response when another garden is open', async ({ page }) => {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  await page.route('**/api/gardens/lake/memorials', async (route) => {
+    await gate
+    await route.fulfill({ json: [] })
+  })
+  try {
+    await visitLocale(page, '/gardens', 'en')
+    await page.getByTestId('garden-choice-lake').click()
+    await expect(page.getByTestId('garden-loading')).toContainText('Gathering stories')
+    await page.goBack()
+    await page.getByTestId('garden-choice-grove').click()
+    await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
+    const response = page.waitForResponse('**/api/gardens/lake/memorials')
+    release()
+    await (await response).finished()
+    await expect(page.getByTestId('memorial-grove-1')).toBeVisible()
+    await expect(page.locator('.memorial-hit')).toHaveCount(16)
+    await expect(page.getByTestId('garden-loading')).toHaveCount(0)
+    await expect(page.locator('.garden-title')).toHaveText('Grove')
+  } finally { release() }
 })
 
 for (const locale of ['ru', 'en']) {
@@ -417,6 +485,9 @@ for (const locale of ['ru', 'en']) {
       await expect(page.getByTestId('memorial-summary')).toContainText(locale === 'ru' ? 'Мило' : 'Milo')
       await expect(page.getByTestId('memorial-summary')).toContainText('2011 — 2023')
       await expect(first).toHaveAccessibleDescription(/2011 — 2023/)
+      await expect(first).toHaveCSS('border-top-width', '0px')
+      await expect(first).toHaveCSS('outline-style', 'none')
+      await expect(first).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
       await page.screenshot({ path: testInfo.outputPath('memorial-hover.png'), animations: 'disabled' })
       await page.mouse.move(0, 0)
       await expect(page.getByTestId('memorial-summary')).toHaveCount(0)
@@ -436,6 +507,7 @@ for (const locale of ['ru', 'en']) {
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
     await expect(first).toBeFocused()
+    await expect(page.getByTestId('memorial-summary')).toHaveCount(0)
     await second.focus()
     await page.keyboard.press('Enter')
     await expect(dialog.getByRole('heading', { name: locale === 'ru' ? 'Луна' : 'Luna', exact: true })).toBeVisible()
@@ -443,12 +515,27 @@ for (const locale of ['ru', 'en']) {
     await dialog.getByRole('button', { name: locale === 'ru' ? 'Вернуться в сад' : 'Return to the garden', exact: true }).click()
     await expect(dialog).toHaveCount(0)
     await expect(second).toBeFocused()
+    await expect(page.getByTestId('memorial-summary')).toHaveCount(0)
     await page.keyboard.press('Space')
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: locale === 'ru' ? 'Закрыть историю' : 'Close story', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(second).toBeFocused()
+    await expect(page.getByTestId('memorial-summary')).toHaveCount(0)
+    await page.keyboard.press('Enter')
     await expect(dialog).toBeVisible()
     const overlay = page.locator('[data-slot="overlay"][data-state="open"]')
     if (isMobile) await overlay.tap({ position: { x: 2, y: 2 } })
     else await overlay.click({ position: { x: 2, y: 2 } })
     await expect(dialog).toHaveCount(0)
+    await expect(page.getByTestId('memorial-summary')).toHaveCount(0)
+    if (!isMobile) {
+      await page.mouse.move(0, 0)
+      await second.hover()
+      await expect(page.getByTestId('memorial-summary')).toContainText(locale === 'ru' ? 'Луна' : 'Luna')
+      await page.mouse.move(0, 0)
+      await expect(page.getByTestId('memorial-summary')).toHaveCount(0)
+    }
     expect(errors).toEqual([])
   })
 }

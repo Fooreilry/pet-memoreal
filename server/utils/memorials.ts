@@ -3,26 +3,26 @@ import { getDatabase } from '../db/client'
 import { gardens, memorials, user } from '../db/schema'
 import { gardenCapacity, isCreatablePlace } from '../../shared/gardens'
 import type { GardenId } from '../../shared/gardens'
-import type { NewMemorial, PublicMemorial } from '../../shared/memorials'
+import type { EditableMemorial, MemorialUpdate, NewMemorial, PublicMemorial } from '../../shared/memorials'
 
 const publicFields = {
-  id: memorials.id, place: memorials.place, name: memorials.name,
+  id: memorials.id, place: memorials.place, name: memorials.name, species: memorials.species,
   born: memorials.born, died: memorials.died, story: memorials.story,
   creatorName: sql<string | null>`case when ${memorials.isAnonymous} then null else ${user.name} end`
 }
 
-type PublicRow = Pick<typeof memorials.$inferSelect, 'id' | 'place' | 'name' | 'born' | 'died' | 'story'> & { creatorName: string | null }
+type PublicRow = Pick<typeof memorials.$inferSelect, 'id' | 'place' | 'name' | 'species' | 'born' | 'died' | 'story'> & { creatorName: string | null }
 
-function publicRecord(row: PublicRow, gardenId: GardenId): PublicMemorial {
-  return { source: 'saved', id: row.id, gardenId, place: row.place, name: row.name, born: row.born, died: row.died, story: row.story, creatorName: row.creatorName, species: 'pet' }
+function publicRecord(row: PublicRow, gardenId: GardenId, canEdit = false): PublicMemorial {
+  return { source: 'saved', id: row.id, gardenId, place: row.place, name: row.name, born: row.born, died: row.died, story: row.story, creatorName: row.creatorName, species: row.species, canEdit }
 }
 
-export async function listGardenMemorials(gardenId: GardenId) {
-  const rows = await getDatabase().db.select(publicFields).from(memorials)
+export async function listGardenMemorials(gardenId: GardenId, viewerId?: string) {
+  const rows = await getDatabase().db.select({ ...publicFields, ownerId: memorials.ownerId }).from(memorials)
     .innerJoin(gardens, eq(memorials.gardenId, gardens.id))
     .innerJoin(user, eq(memorials.ownerId, user.id))
     .where(eq(gardens.slug, gardenId)).orderBy(asc(memorials.place))
-  return rows.map(row => publicRecord(row, gardenId))
+  return rows.map(row => publicRecord(row, gardenId, !!viewerId && row.ownerId === viewerId))
 }
 
 export async function listOwnedMemorials(ownerId: string) {
@@ -30,21 +30,42 @@ export async function listOwnedMemorials(ownerId: string) {
     .innerJoin(gardens, eq(memorials.gardenId, gardens.id))
     .innerJoin(user, eq(memorials.ownerId, user.id))
     .where(eq(memorials.ownerId, ownerId)).orderBy(asc(memorials.createdAt))
-  return rows.map(row => publicRecord(row, row.slug as GardenId))
+  return rows.map(row => publicRecord(row, row.slug as GardenId, true))
+}
+
+export async function getOwnedMemorial(ownerId: string, memorialId: string): Promise<EditableMemorial | undefined> {
+  const [row] = await getDatabase().db.select({ ...publicFields, slug: gardens.slug, isAnonymous: memorials.isAnonymous }).from(memorials)
+    .innerJoin(gardens, eq(memorials.gardenId, gardens.id))
+    .innerJoin(user, eq(memorials.ownerId, user.id))
+    .where(and(eq(memorials.id, memorialId), eq(memorials.ownerId, ownerId)))
+  if (!row) return undefined
+  return { ...publicRecord(row, row.slug as GardenId, true), isAnonymous: row.isAnonymous }
+}
+
+export async function updateOwnedMemorial(ownerId: string, memorialId: string, input: MemorialUpdate): Promise<PublicMemorial | undefined> {
+  return getDatabase().db.transaction(async (tx) => {
+    const [row] = await tx.update(memorials).set({ name: input.name, species: input.species, born: input.born, died: input.died,
+      story: input.story, isAnonymous: input.isAnonymous })
+      .where(and(eq(memorials.id, memorialId), eq(memorials.ownerId, ownerId))).returning()
+    if (!row) return undefined
+    const [garden] = await tx.select({ slug: gardens.slug }).from(gardens).where(eq(gardens.id, row.gardenId))
+    const [creator] = row.isAnonymous ? [] : await tx.select({ name: user.name }).from(user).where(eq(user.id, ownerId))
+    return publicRecord({ ...row, creatorName: creator?.name ?? null }, garden!.slug as GardenId, true)
+  })
 }
 
 export async function createMemorial(ownerId: string, input: NewMemorial) {
   return getDatabase().db.transaction(async (tx) => {
     async function createdRecord(row: typeof memorials.$inferSelect) {
       const [creator] = row.isAnonymous ? [] : await tx.select({ name: user.name }).from(user).where(eq(user.id, ownerId))
-      return publicRecord({ ...row, creatorName: creator?.name ?? null }, input.gardenId)
+      return publicRecord({ ...row, creatorName: creator?.name ?? null }, input.gardenId, true)
     }
     // Lock one garden row so competing requests cannot claim the same place.
     const [garden] = await tx.select().from(gardens).where(eq(gardens.slug, input.gardenId)).for('update')
     if (!garden) throw createError({ statusCode: 503, statusMessage: 'Garden unavailable' })
     const [previous] = await tx.select().from(memorials).where(and(eq(memorials.ownerId, ownerId), eq(memorials.requestId, input.requestId)))
     if (previous) {
-      if (previous.gardenId !== garden.id || previous.name !== input.name || previous.born !== input.born || previous.died !== input.died || previous.story !== input.story || previous.isAnonymous !== input.isAnonymous || (input.place !== undefined && previous.place !== input.place)) {
+      if (previous.gardenId !== garden.id || previous.name !== input.name || previous.species !== input.species || previous.born !== input.born || previous.died !== input.died || previous.story !== input.story || previous.isAnonymous !== input.isAnonymous || (input.place !== undefined && previous.place !== input.place)) {
         throw createError({ statusCode: 409, statusMessage: 'Request conflict' })
       }
       return createdRecord(previous)

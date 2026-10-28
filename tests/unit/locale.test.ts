@@ -25,6 +25,10 @@ test('language and auth redirects stay local and accept unprefixed garden links'
   }
   assert.equal(authRedirect('/gardens?garden=lake&create=3'), '/gardens?garden=lake&create=3')
   assert.equal(authRedirect('/ru/memorials/new'), '/memorials/new')
+  assert.equal(authRedirect('/memorials/new?garden=lake&place=3'), '/memorials/new?garden=lake&place=3')
+  assert.equal(authRedirect('/ru/memorials/24db8ea0-85fb-4d57-a6dc-442405b8bc7e/edit'), '/memorials/24db8ea0-85fb-4d57-a6dc-442405b8bc7e/edit')
+  assert.equal(authRedirect('/memorials/not-an-id/edit'), undefined)
+  assert.equal(authRedirect('/memorials/24db8ea0-85fb-4d57-a6dc-442405b8bc7e/edit/other'), undefined)
   assert.equal(authRedirect('//evil.test'), undefined)
   assert.equal(authRedirect('/account'), undefined)
 })

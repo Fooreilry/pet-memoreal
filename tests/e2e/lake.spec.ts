@@ -131,6 +131,6 @@ test('lake mist obeys pause and reduced motion while rotation and sparse plants 
   await expect(empty).toBeInViewport()
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/\/login\?redirect=/)
-  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/gardens?garden=lake&create=3')
+  expect(new URL(page.url()).searchParams.get('redirect')).toBe('/memorials/new?garden=lake&place=3')
   expect(errors).toEqual([])
 })
