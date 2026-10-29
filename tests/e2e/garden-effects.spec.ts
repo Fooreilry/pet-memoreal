@@ -278,6 +278,16 @@ for (const failure of ['reload', 'enable'] as const) {
     const message = locale === 'ru' ? 'Атмосферные эффекты недоступны в этом браузере' : 'Atmospheric effects are unavailable in this browser'
     await expect(toggle).toHaveAccessibleName(message)
     await expect(toggle).toHaveAttribute('title', message)
+    // Disabled weather controls cannot receive keyboard focus or mobile hover;
+    // their explanation must remain discoverable from the reachable Help control.
+    const help = page.getByTestId('garden-help')
+    await help.focus()
+    await page.keyboard.press('Enter')
+    await expect(help).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.locator('.garden-help-card')).toContainText(message)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.garden-help-card')).toHaveCount(0)
+    await expect(help).toBeFocused()
     // A failed filter must restore the default framebuffer, not just hide its UI.
     await expect.poll(async () => Buffer.compare(plain, await sceneryFrame(page))).toBe(0)
     await page.locator('canvas').screenshot({ path: testInfo.outputPath(`shader-${failure}-fallback.png`), animations: 'disabled' })

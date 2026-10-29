@@ -59,7 +59,7 @@ for (const locale of ['ru', 'en']) {
     await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
     const title = page.getByRole('heading', { level: 1 })
     await expect(title).toHaveText(locale === 'ru' ? 'Луг' : 'Meadow')
-    for (const size of [page.viewportSize()!, { width: 844, height: 390 }]) {
+    for (const size of [page.viewportSize()!, { width: 844, height: 390 }, { width: 320, height: 640 }, { width: 720, height: 500 }, { width: 390, height: 390 }, { width: 320, height: 450 }]) {
       await page.setViewportSize(size)
       await expect.poll(async () => {
         const bounds = await canvas.boundingBox()
@@ -76,8 +76,11 @@ for (const locale of ['ru', 'en']) {
       expect(heading.x + heading.width / 2).toBeCloseTo(size.width / 2, 0)
       expect(heading.y).toBeLessThan(bounds.y + 40)
       const controls = (await page.locator('.camera-toolbar').boundingBox())!
-      expect(controls.x).toBeGreaterThan(bounds.x + bounds.width * 0.7)
-      expect(controls.y).toBeLessThan(bounds.y + 40)
+      expect(controls.x + controls.width).toBeLessThanOrEqual(bounds.x + bounds.width)
+      expect(controls.x + controls.width).toBeGreaterThan(bounds.x + bounds.width - 32)
+      expect(controls.y).toBeLessThan(bounds.y + (size.width <= 600 ? 100 : 40))
+      if (size.width <= 600) expect(controls.y).toBeGreaterThanOrEqual(heading.y + heading.height)
+      else expect(controls.x).toBeGreaterThan(heading.x + heading.width - 1)
       for (const element of [page.getByTestId('garden-switch'), page.getByTestId('garden-previous'), page.getByTestId('garden-next'), page.getByTestId('garden-zoom-in'), page.getByTestId('garden-fullscreen')]) {
         const box = (await element.boundingBox())!
         expect(box.x).toBeGreaterThanOrEqual(bounds.x)
@@ -88,6 +91,8 @@ for (const locale of ['ru', 'en']) {
         expect(box.height).toBeGreaterThanOrEqual(44)
       }
       expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight && document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      await expect(page.getByTestId('garden-previous').locator('.garden-path-label')).toHaveText(locale === 'ru' ? 'Назад' : 'Previous')
+      await expect(page.getByTestId('garden-next').locator('.garden-path-label')).toHaveText(locale === 'ru' ? 'Дальше' : 'Next')
       await page.screenshot({ path: testInfo.outputPath(`workspace-${size.width}.png`), animations: 'disabled' })
     }
     await expect(page.getByTestId('garden-previous')).toContainText(locale === 'ru' ? 'Холм' : 'Hill')
@@ -192,6 +197,69 @@ test('expanded map keeps story dialogs and garden menus usable and Escape dismis
   await expect(page.getByTestId('garden-fullscreen')).toHaveCount(0)
   await expectNoNativeFullscreen(page)
 })
+
+for (const locale of ['ru', 'en']) {
+  test(`${locale}: staged loading hides partial places and recovers from a data error before returning to garden choices`, async ({ page }, testInfo) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let unavailable = true
+    const id = '8bca0797-5d6c-4b68-b243-9c41c7fe0103'
+    await page.route('**/api/gardens/lake/memorials', async (route) => {
+      await gate
+      await route.fulfill(unavailable
+        ? { status: 503, json: { statusMessage: 'Memorials unavailable' } }
+        : { json: [{ id, gardenId: 'lake', place: 3, name: 'Patient friend', born: 2010, died: 2024, story: 'A story that arrives with the whole garden.', source: 'saved', species: 'pet', creatorName: null, canEdit: false }] })
+    })
+    try {
+      await visitLocale(page, '/gardens?garden=lake', locale)
+      const scene = page.locator('.canvas-wrapper')
+      const loading = page.getByTestId('garden-loading')
+      await expect(scene).toHaveAttribute('data-state', 'loading')
+      await expect(scene).toHaveAttribute('aria-busy', 'true')
+      await expect(loading).toHaveAttribute('data-phase', 'stories')
+      await expect(loading.getByRole('status')).toHaveText(locale === 'ru' ? 'Собираем истории…' : 'Gathering stories…')
+      await expect(loading.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '1')
+      await expect(loading.getByRole('progressbar')).toHaveAttribute('aria-valuemax', '3')
+      await expect(loading.locator('.garden-loading-stages li')).toHaveText(locale === 'ru' ? ['Пейзаж', 'Истории', 'Места памяти'] : ['Scenery', 'Stories', 'Memorials'])
+      await expect(loading.locator('.garden-loading-sprout')).toHaveCSS('animation-name', 'none')
+      await expect(loading).toBeInViewport()
+      await expect(page.locator('.canvas-host')).toBeHidden()
+      await expect(page.locator('.memorial-hit, .garden-hud')).toHaveCount(0)
+      await expect(page.getByTestId('garden-header')).toBeVisible()
+      await page.screenshot({ path: testInfo.outputPath(`garden-staged-loading-${locale}.png`), animations: 'disabled' })
+      release()
+      await expect(scene).toHaveAttribute('data-state', 'error')
+      const alert = page.getByRole('alert')
+      await expect(alert).toBeVisible()
+      await expect(alert.getByRole('heading')).toHaveText(locale === 'ru' ? 'Не удалось открыть сад' : 'The garden could not be opened')
+      await expect(alert).toContainText(locale === 'ru' ? 'Места памяти сейчас не загружаются.' : "Memorials aren't loading right now.")
+      const retry = alert.getByRole('button')
+      const retryBounds = (await retry.boundingBox())!
+      expect(retryBounds.width).toBeGreaterThanOrEqual(44)
+      expect(retryBounds.height).toBeGreaterThanOrEqual(44)
+      await expect(page.locator('.memorial-hit, .garden-hud')).toHaveCount(0)
+      await page.screenshot({ path: testInfo.outputPath(`garden-data-error-${locale}.png`), animations: 'disabled' })
+      unavailable = false
+      await retry.click()
+      await expect(scene).toHaveAttribute('data-state', 'ready')
+      await expect(scene).toHaveAttribute('aria-busy', 'false')
+      await expect(loading).toHaveCount(0)
+      await expect(page.getByTestId(`memorial-${id}`)).toBeVisible()
+      await expect(page.getByTestId('empty-lake-3')).toHaveCount(0)
+      await expect(page.locator('.memorial-hit')).toHaveCount(10)
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText(locale === 'ru' ? 'Озеро' : 'Lake')
+      await page.getByTestId('garden-switch').click()
+      await expect(page.getByTestId('garden-lake')).toHaveAttribute('aria-pressed', 'true')
+      await page.getByTestId('garden-overview').click()
+      await expect(page).toHaveURL(/\/gardens$/)
+      await expect(scene).toHaveAttribute('data-state', 'ready')
+      await expect(page.getByTestId('garden-choices').getByRole('button')).toHaveCount(4)
+      await expect(page.locator('.memorial-hit, .garden-hud')).toHaveCount(0)
+      await expect(page.getByTestId('garden-header')).toBeVisible()
+    } finally { release() }
+  })
+}
 
 test('window expansion ends on the creation page and starts inset after returning to the garden', async ({ page }) => {
   await forbidNativeFullscreen(page)

@@ -79,6 +79,75 @@ for (const locale of ['ru', 'en']) {
       await expect(summary).toHaveCount(0)
     }
   })
+
+  test(`${locale}: long saved stories remain readable without hiding their author, edit action or dismiss controls`, async ({ page, isMobile }, testInfo) => {
+    const id = 'f0450ee2-6f73-4f12-9b25-1ac673603882'
+    const name = (locale === 'ru' ? 'Наш любимый маленький солнечный друг ' : 'Our beloved little companion in the sunshine ').repeat(3).slice(0, 80)
+    const paragraph = locale === 'ru'
+      ? 'Мы помним ваши любимые тропинки и долгие тихие вечера рядом. '
+      : 'We remember your favorite paths and all the quiet evenings we spent together. '
+    const storyText = Array.from({ length: 80 }, () => paragraph).join('\n\n').slice(0, 5000)
+    const creatorName = locale === 'ru' ? null : 'Alex'
+    await page.route('**/api/gardens/lake/memorials', route => route.fulfill({ json: [{
+      source: 'saved', id, gardenId: 'lake', place: 2, name, species: 'cat', born: 2012, died: 2024,
+      story: storyText, creatorName, canEdit: true
+    }] }))
+    await visitLocale(page, '/gardens?garden=lake', locale)
+    await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
+    const stone = page.getByTestId(`memorial-${id}`)
+    await stone.focus()
+    await activate(stone, isMobile)
+    const summary = page.getByTestId('memorial-summary')
+    await expect(summary).toContainText(name)
+    await expect(summary).toContainText(locale === 'ru' ? 'Читать историю' : 'Read the story')
+    await expectCardInsideWindow(page)
+    const excerpt = summary.locator('.memorial-summary-quote')
+    expect(await excerpt.evaluate(element => element.clientHeight <= Number.parseFloat(getComputedStyle(element).lineHeight) * 3 + 1)).toBe(true)
+    await activate(summary, isMobile)
+    const story = storyDialog(page)
+    await expect(story).toHaveAccessibleName(name)
+    await expect(story.locator('.memorial-story p')).toHaveText(storyText)
+    await expect(story.getByTestId('memorial-creator')).toContainText(creatorName ?? 'Анонимно')
+    const edit = story.getByTestId('memorial-edit')
+    await expect(edit).toHaveText(locale === 'ru' ? 'Изменить' : 'Edit')
+    await expect(edit).toHaveAttribute('href', `/memorials/${id}/edit`)
+    const close = story.getByRole('button', { name: locale === 'ru' ? 'Закрыть историю' : 'Close story', exact: true })
+    const back = story.getByRole('button', { name: locale === 'ru' ? 'Вернуться в сад' : 'Return to the garden', exact: true })
+    const body = story.locator('[data-slot="body"]')
+    await expect(close).toBeInViewport()
+    await expect(back).toBeInViewport()
+    await story.evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)))
+    if (page.viewportSize()!.width <= 480) {
+      // Long identities stay complete without taking most of a phone's reading area.
+      expect((await story.locator('[data-slot="header"]').boundingBox())!.height).toBeLessThan(page.viewportSize()!.height * .45)
+    }
+    const initialBack = (await back.boundingBox())!
+    expect((await edit.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    expect(await story.locator('.memorial-story p').evaluate(element => getComputedStyle(element).fontSize)).toBe('16px')
+    await body.evaluate(element => { element.scrollTop = element.scrollHeight })
+    expect(await body.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+    expect((await back.boundingBox())!.y).toBeCloseTo(initialBack.y, 0)
+    await expect(close).toBeInViewport()
+    await expect(back).toBeInViewport()
+    await page.screenshot({ path: testInfo.outputPath(`saved-story-${locale}.png`), scale: 'css', animations: 'disabled' })
+    await back.click()
+    await expect(story).toHaveCount(0)
+    await expect(summary).toHaveCount(0)
+    await expect(stone).toBeFocused()
+
+    // Landscape phones keep the header/footer reachable while only the long body scrolls.
+    await page.setViewportSize({ width: 844, height: 390 })
+    await stone.focus()
+    await activate(stone, isMobile)
+    await expectCardInsideWindow(page)
+    await activate(summary, isMobile)
+    await expect(story).toHaveAccessibleName(name)
+    await expect(close).toBeInViewport()
+    await expect(back).toBeInViewport()
+    await close.click()
+    await expect(story).toHaveCount(0)
+    await expect(summary).toHaveCount(0)
+  })
 }
 
 test('mouse users can cross from a hovered stone onto its short card and click the card to read the story', async ({ page, isMobile }) => {

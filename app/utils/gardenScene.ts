@@ -50,7 +50,7 @@ function landscape(g: Graphics, garden: Garden, w: number, h: number, preview: b
   const mood = moods[garden.id]
   // Selected gardens share the continuous world ground beneath this transparent feature layer.
   if (preview || !terrainOnly) {
-    g.roundRect(0, 0, w, h, 28).fill(mood.ground)
+    g.roundRect(0, 0, w, h, 16).fill(mood.ground)
     if (!(preview && garden.id === 'hill')) drawGardenGround(g, w, h, garden.id, preview)
   }
   if (garden.id === 'meadow') (terrainOnly ? drawMeadowTerrain : drawMeadowLandscape)(g, w, h, preview)
@@ -82,7 +82,7 @@ export function createGardenScene(width: number, height: number, garden: Garden 
   root.addChild(staticArt)
   if (!garden) staticArt.addChild(new Graphics().roundRect(0, 0, width, height, 28).fill(0x142e2e))
   if (!garden) {
-    getGardenOverviewLayout(width, height).forEach(({ garden: item, x, y, width: tileW, height: tileH }, index) => {
+    getGardenOverviewLayout(width, height).forEach(({ garden: item, x, y, width: tileW, height: tileH }) => {
       const tile = new Container()
       tile.pivot.set(tileW / 2, tileH / 2)
       tile.position.set(x + tileW / 2, y + tileH / 2)
@@ -96,21 +96,10 @@ export function createGardenScene(width: number, height: number, garden: Garden 
       scenery.addChild(art)
       scenery.cacheAsTexture({ resolution: 2, antialias: true })
       tile.addChild(scenery)
-      const frame = new Graphics().roundRect(8, 8, tileW - 16, tileH - 16, 24).stroke({ color: 0xd8d4ad, width: 1, alpha: 0.16 })
-      tile.addChild(frame)
-      label(tile, `0${index + 1}`, 23, 18, 18, 0xf5dfb2)
-      const captions = new Container()
-      captions.eventMode = 'none'
-      captions.addChild(new Graphics().roundRect(10, tileH - 99, tileW - 20, 89, 20).fill(0x142e2c))
-      label(captions, t(`garden.names.${item.id}`), 27, tileH - 87, 30, 0xfaf5eb, true)
-      label(captions, t('garden.places', { count: item.count }), 27, tileH - 43, 18, 0xc9d5bf)
-      // Cache only the small footer, not another full-card render texture.
-      captions.cacheAsTexture({ resolution: 2, antialias: true })
-      tile.addChild(captions)
-      const mask = new Graphics().roundRect(0, 0, tileW, tileH, 28).fill(0xffffff)
+      const mask = new Graphics().roundRect(0, 0, tileW, tileH, 16).fill(0xffffff)
       tile.addChild(mask)
       tile.mask = mask
-      // Only the cached scenery moves beneath the fixed mask and caption layer.
+      // The native choice button owns fixed, accessible captions above this artwork.
       staticArt.addChild(tile)
       overviewTiles.set(item.id, { scenery, zoom: 1, from: 1, target: 1, elapsed: 0 })
     })

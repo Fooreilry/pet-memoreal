@@ -33,7 +33,8 @@ test('free places wait for a successful load and keyboard selection preserves th
   await page.route('**/api/gardens/meadow/memorials', route => route.fulfill(unavailable ? { status: 503, json: { statusMessage: 'Unavailable' } } : { json: [] }))
   await page.route('**/api/me', route => route.fulfill({ status: 401, json: { statusMessage: 'Unauthorized' } }))
   await visitLocale(page, '/gardens?garden=meadow', 'en')
-  await expect(page.getByRole('alert')).toContainText('adding a memorial is unavailable')
+  await expect(page.getByRole('alert')).toContainText('The garden could not be opened')
+  await expect(page.getByRole('alert')).toContainText("Memorials aren't loading right now. Please try opening the garden again.")
   const empty = page.getByTestId('empty-meadow-3')
   await expect(empty).toHaveCount(0)
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'error')
@@ -158,6 +159,65 @@ for (const locale of ['ru', 'en']) {
     await page.getByTestId('garden-switch').click()
     await page.getByTestId('garden-home').click()
     await expect(page.locator('.camera-toolbar')).toHaveCount(0)
+    expect(errors).toEqual([])
+  })
+}
+
+for (const locale of ['ru', 'en']) {
+  test(`${locale}: compact camera controls and keyboard help stay readable in narrow and short windows`, async ({ page }, testInfo) => {
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(error.message))
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    await page.setViewportSize({ width: 320, height: 568 })
+    await visitLocale(page, '/gardens?garden=meadow', locale)
+    const view = page.locator('.canvas-wrapper')
+    await expect(view).toHaveAttribute('data-state', 'ready')
+    for (const size of [{ width: 320, height: 568 }, { width: 390, height: 390 }, { width: 320, height: 450 }, { width: 844, height: 390 }]) {
+      await page.setViewportSize(size)
+      const scene = (await view.boundingBox())!
+      const toolbar = page.locator('.camera-toolbar')
+      await expect(toolbar).toBeInViewport()
+      const controls = (await toolbar.boundingBox())!
+      const heading = (await page.getByRole('heading', { level: 1 }).boundingBox())!
+      const overlapsTitle = controls.x < heading.x + heading.width && controls.x + controls.width > heading.x
+        && controls.y < heading.y + heading.height && controls.y + controls.height > heading.y
+      expect(overlapsTitle).toBe(false)
+      for (const id of ['garden-zoom-out', 'garden-zoom-in', 'garden-camera-reset', 'garden-fullscreen', 'garden-effects', 'garden-motion', 'garden-help']) {
+        const button = page.getByTestId(id)
+        await expect(button).toBeVisible()
+        const box = (await button.boundingBox())!
+        expect(box.width).toBeGreaterThanOrEqual(44)
+        expect(box.height).toBeGreaterThanOrEqual(44)
+        expect(box.x).toBeGreaterThanOrEqual(scene.x)
+        expect(box.y).toBeGreaterThanOrEqual(scene.y)
+        expect(box.x + box.width).toBeLessThanOrEqual(scene.x + scene.width + 1)
+        expect(box.y + box.height).toBeLessThanOrEqual(scene.y + scene.height + 1)
+      }
+      const help = page.getByTestId('garden-help')
+      await help.focus()
+      await expect(help).toBeFocused()
+      await expect(help).toHaveCSS('outline-width', '2px')
+      await page.keyboard.press('Enter')
+      await expect(help).toHaveAttribute('aria-expanded', 'true')
+      const card = page.locator('.garden-help-card')
+      await expect(card).toBeVisible()
+      await expect(card).toContainText(locale === 'ru' ? 'Перетаскивайте сад' : 'Drag with a mouse or finger')
+      // The portaled popover repositions while its opening animation settles.
+      await expect.poll(async () => {
+        const bounds = await card.boundingBox()
+        if (!bounds) return Number.POSITIVE_INFINITY
+        return Math.max(-bounds.x, -bounds.y, bounds.x + bounds.width - size.width, bounds.y + bounds.height - size.height)
+      }).toBeLessThanOrEqual(1)
+      for (const paragraph of await card.locator('p').all()) {
+        expect(await paragraph.evaluate(element => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(14)
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true)
+      await page.screenshot({ path: testInfo.outputPath(`camera-help-${size.width}x${size.height}.png`), animations: 'disabled' })
+      await page.keyboard.press('Escape')
+      await expect(card).toHaveCount(0)
+      await expect(help).toBeFocused()
+      await expect(help).toHaveAttribute('aria-expanded', 'false')
+    }
     expect(errors).toEqual([])
   })
 }

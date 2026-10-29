@@ -29,7 +29,7 @@ const sceneReady = ref(false)
 const dataReady = computed(() => !props.gardenId || props.placesState === 'ready')
 const isReady = computed(() => state.value === 'ready' && dataReady.value && sceneReady.value)
 const viewState = computed(() => state.value === 'error' || (props.gardenId && props.placesState === 'error') ? 'error' : isReady.value ? 'ready' : 'loading')
-const loadingSteps = computed(() => Number(state.value === 'ready') + Number(dataReady.value) + Number(sceneReady.value))
+const loadingSteps = computed(() => state.value !== 'ready' ? 0 : !dataReady.value ? 1 : !sceneReady.value ? 2 : 3)
 const loadingPhase = computed(() => state.value !== 'ready' ? 'opening' : !dataReady.value ? 'stories' : 'places')
 const cameraEnabled = computed(() => isReady.value && !!props.gardenId && !modalOpen.value && !props.editing)
 const { camera, interacting, dragging, reset, resize, zoomTo, reveal, pointerDown, pointerMove, pointerUp, clickCapture, wheel, keydown } = useGardenCamera(viewport, cameraEnabled)
@@ -402,21 +402,27 @@ onBeforeUnmount(() => {
         :class="{ 'garden-choice-active': overviewHovered === place.garden.id }"
         :data-testid="`garden-choice-${place.garden.id}`"
         :aria-label="t(`garden.names.${place.garden.id}`)"
-        :style="{ left: `${place.x / world.width * 100}%`, top: `${place.y / world.height * 100}%`, width: `${place.width / world.width * 100}%`, height: `${place.height / world.height * 100}%`, borderRadius: `${28 * projection.scale}px` }"
+        :aria-describedby="`garden-description-${place.garden.id}`"
+        :style="{ left: `${place.x / world.width * 100}%`, top: `${place.y / world.height * 100}%`, width: `${place.width / world.width * 100}%`, height: `${place.height / world.height * 100}%` }"
         @pointerenter="$event.pointerType === 'mouse' && hoverOverview(place.garden.id)"
         @pointerleave="hoverOverview()"
         @focus="hoverOverview(place.garden.id)"
         @blur="hoverOverview()"
         @click="emit('select', place.garden.id)"
-      />
+      >
+        <span class="garden-choice-caption">
+          <span class="garden-choice-title">{{ t(`garden.names.${place.garden.id}`) }}<UIcon name="i-lucide-arrow-up-right" aria-hidden="true" /></span>
+          <span :id="`garden-description-${place.garden.id}`" class="garden-choice-description">{{ t(`garden.overview.${place.garden.id}`) }}</span>
+        </span>
+      </button>
     </nav>
     <GardenMemorials v-if="isReady && gardenId" :key="`${gardenId}:${sessionSeed}`" :garden-id="gardenId" :width="world.width" :height="world.height" :projection="projection" :camera="camera" :interacting="interacting" :saved="memorials" :focus-id="focusId" :can-create="canCreate && !editing" @modal="modalOpen = $event" @reveal="reveal" @create="emit('create', $event)" />
     <div v-if="!isReady" class="canvas-state">
       <AppState
         v-if="viewState === 'error'"
         kind="error"
-        :title="t(placesState === 'error' ? 'creation.errors.map' : 'garden.error')"
-        :description="placesState === 'error' ? undefined : t('garden.errorHint')"
+        :title="t(placesState === 'error' ? 'garden.dataError.title' : 'garden.error')"
+        :description="t(placesState === 'error' ? 'garden.dataError.description' : 'garden.errorHint')"
         retry
         @retry="retry"
       />
@@ -424,21 +430,23 @@ onBeforeUnmount(() => {
     </div>
   </div>
   <div v-if="gardenId && (isReady || fullscreen)" class="camera-toolbar" :class="{ 'camera-toolbar-loading': !isReady }" role="group" :aria-label="t('garden.camera.controls')">
-    <template v-if="isReady">
-      <button type="button" :aria-label="t('garden.camera.in')" :title="t('garden.camera.in')" :disabled="camera.zoom >= 4 || editing || modalOpen" data-testid="garden-zoom-in" @click="zoomTo(camera.zoom * 1.25)"><UIcon name="i-lucide-plus" aria-hidden="true" /></button>
-      <output :aria-label="t('garden.camera.scale')">{{ Math.round(camera.zoom * 100) }}%</output>
+    <div v-if="isReady" class="camera-zoom-group" role="group" :aria-label="t('garden.camera.scale')">
       <button type="button" :aria-label="t('garden.camera.out')" :title="t('garden.camera.out')" :disabled="camera.zoom <= 1 || editing || modalOpen" data-testid="garden-zoom-out" @click="zoomTo(camera.zoom / 1.25)"><UIcon name="i-lucide-minus" aria-hidden="true" /></button>
-      <button type="button" :aria-label="t('garden.camera.reset')" :title="t('garden.camera.reset')" :disabled="editing || modalOpen" data-testid="garden-camera-reset" @click="reset"><UIcon name="i-lucide-rotate-ccw" aria-hidden="true" /></button>
-    </template>
-    <button type="button" :aria-label="t(fullscreen ? 'garden.camera.exitFullscreen' : 'garden.camera.fullscreen')" :title="t(fullscreen ? 'garden.camera.exitFullscreen' : 'garden.camera.fullscreen')" :aria-pressed="fullscreen" data-testid="garden-fullscreen" @click="emit('toggleFullscreen')"><UIcon :name="fullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'" aria-hidden="true" /></button>
-    <template v-if="isReady">
-      <button v-if="!reducedMotion" type="button" :aria-pressed="paused" :aria-label="t(paused ? 'garden.resumeMotion' : 'garden.pauseMotion')" :title="t(paused ? 'garden.resumeMotion' : 'garden.pauseMotion')" data-testid="garden-motion" @click="paused = !paused"><UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" aria-hidden="true" /></button>
-      <button type="button" :aria-pressed="effectsEnabled && effectsSupported" :aria-label="t(!effectsSupported ? 'garden.effects.unavailable' : effectsEnabled ? 'garden.effects.disable' : 'garden.effects.enable')" :title="t(!effectsSupported ? 'garden.effects.unavailable' : effectsEnabled ? 'garden.effects.disable' : 'garden.effects.enable')" :disabled="!effectsSupported" :class="{ 'effects-active': effectsEnabled && effectsSupported }" data-testid="garden-effects" @click="toggleEffects"><UIcon :name="gardenId === 'lake' ? 'i-lucide-cloud-rain' : gardenId === 'meadow' ? 'i-lucide-sun' : gardenId === 'grove' ? 'i-lucide-sun-medium' : 'i-lucide-cloud-sun'" aria-hidden="true" /></button>
-      <UPopover :content="{ side: 'left', align: 'start', sideOffset: 12 }">
-        <button type="button" :aria-label="t('garden.camera.instructions')" :title="t('garden.camera.instructions')" data-testid="garden-help"><UIcon name="i-lucide-circle-help" aria-hidden="true" /></button>
-        <template #content><div class="garden-help-card"><p>{{ t('garden.camera.help') }}</p><p>{{ t('creation.mapHint') }}</p><p>{{ t('garden.effects.help') }}</p><p v-if="reducedMotion">{{ t('garden.reducedMotion') }}</p></div></template>
-      </UPopover>
-    </template>
+      <output :aria-label="t('garden.camera.scale')">{{ Math.round(camera.zoom * 100) }}%</output>
+      <button type="button" :aria-label="t('garden.camera.in')" :title="t('garden.camera.in')" :disabled="camera.zoom >= 4 || editing || modalOpen" data-testid="garden-zoom-in" @click="zoomTo(camera.zoom * 1.25)"><UIcon name="i-lucide-plus" aria-hidden="true" /></button>
+    </div>
+    <div class="camera-tools-group">
+      <button v-if="isReady" type="button" :aria-label="t('garden.camera.reset')" :title="t('garden.camera.reset')" :disabled="editing || modalOpen" data-testid="garden-camera-reset" @click="reset"><UIcon name="i-lucide-rotate-ccw" aria-hidden="true" /></button>
+      <button type="button" :aria-label="t(fullscreen ? 'garden.camera.exitFullscreen' : 'garden.camera.fullscreen')" :title="t(fullscreen ? 'garden.camera.exitFullscreen' : 'garden.camera.fullscreen')" :aria-pressed="fullscreen" data-testid="garden-fullscreen" @click="emit('toggleFullscreen')"><UIcon :name="fullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'" aria-hidden="true" /></button>
+      <template v-if="isReady">
+        <button type="button" :aria-pressed="effectsEnabled && effectsSupported" :aria-label="t(!effectsSupported ? 'garden.effects.unavailable' : effectsEnabled ? 'garden.effects.disable' : 'garden.effects.enable')" :title="t(!effectsSupported ? 'garden.effects.unavailable' : effectsEnabled ? 'garden.effects.disable' : 'garden.effects.enable')" :disabled="!effectsSupported" :class="{ 'effects-active': effectsEnabled && effectsSupported }" data-testid="garden-effects" @click="toggleEffects"><UIcon :name="gardenId === 'lake' ? 'i-lucide-cloud-rain' : gardenId === 'meadow' ? 'i-lucide-sun' : gardenId === 'grove' ? 'i-lucide-sun-medium' : 'i-lucide-cloud-sun'" aria-hidden="true" /></button>
+        <button v-if="!reducedMotion" type="button" :aria-pressed="paused" :aria-label="t(paused ? 'garden.resumeMotion' : 'garden.pauseMotion')" :title="t(paused ? 'garden.resumeMotion' : 'garden.pauseMotion')" data-testid="garden-motion" @click="paused = !paused"><UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" aria-hidden="true" /></button>
+        <UPopover :content="{ side: 'bottom', align: 'end', sideOffset: 10, collisionPadding: 16, prioritizePosition: true, sticky: 'always' }">
+          <button type="button" :aria-label="t('garden.camera.instructions')" :title="t('garden.camera.instructions')" data-testid="garden-help"><UIcon name="i-lucide-circle-help" aria-hidden="true" /></button>
+          <template #content><section class="garden-help-card" :aria-label="t('garden.camera.instructions')"><h2>{{ t('garden.camera.instructions') }}</h2><p>{{ t('garden.camera.help') }}</p><p>{{ t('creation.mapHint') }}</p><p>{{ t('garden.effects.help') }}</p><p v-if="!effectsSupported" class="garden-effects-note">{{ t('garden.effects.unavailable') }}</p><p v-if="reducedMotion">{{ t('garden.reducedMotion') }}</p></section></template>
+        </UPopover>
+      </template>
+    </div>
   </div>
   <p v-if="gardenId" id="garden-camera-help" class="sr-only">{{ t('garden.camera.help') }} {{ t('creation.mapHint') }}</p>
 </template>
@@ -448,28 +456,48 @@ onBeforeUnmount(() => {
 .garden-frame { position: absolute; left: 0; top: 0; transform-origin: top left; pointer-events: none; border: 0; }
 .camera-enabled { touch-action: none; cursor: grab; user-select: none; }
 .camera-dragging { cursor: grabbing; }
-.canvas-wrapper:focus-visible { outline: 3px solid #efc681; outline-offset: -4px; }
+.canvas-wrapper:focus-visible { outline: var(--focus-width) solid var(--color-lantern-300); outline-offset: -2px; }
 .canvas-host { position: absolute; inset: 0; }
 .canvas-hidden { visibility: hidden; }
 .garden-choices { position: absolute; inset: 0; pointer-events: none; }
-.garden-choice { position: absolute; border: 0; background: transparent; cursor: pointer; pointer-events: auto; }
-.garden-choice:focus-visible { outline: 2px solid #efc681; outline-offset: 3px; }
+.garden-choice { position: absolute; border: 0; border-radius: var(--panel-radius); background: transparent; cursor: pointer; pointer-events: auto; text-align: left; color: var(--garden-control-text); }
+.garden-choice:focus-visible { outline: var(--focus-width) solid var(--color-lantern-300); outline-offset: var(--focus-offset); }
+.garden-choice-caption { position: absolute; left: 10px; right: 10px; bottom: 10px; display: grid; gap: 8px; padding: 16px 18px; border-radius: var(--control-radius); background: var(--garden-control-bg); }
+.garden-choice-title { display: flex; justify-content: space-between; align-items: center; gap: 8px; font: 30px/1.15 var(--font-display); }
+.garden-choice-title .iconify { width: 18px; height: 18px; flex-shrink: 0; color: var(--color-lantern-200); transition: transform 160ms ease; }
+.garden-choice-description { min-height: 42px; font-size: 14px; line-height: 1.5; color: var(--color-garden-100); }
+.garden-choice:hover .garden-choice-title .iconify { transform: translate(2px, -2px); }
+.garden-choice:active .garden-choice-caption { background: var(--color-garden-900); }
 .canvas-host :deep(canvas) { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: pan-y; }
 .canvas-state { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at center, #285349, #142f2d); color: #f8f3e8; --ui-primary: #efc681; --focus-color: #efc681; }
 .canvas-state :deep(.app-state), .canvas-state :deep(.app-state h3), .canvas-state :deep(.app-state p) { color: #f8f3e8; }
+.canvas-state :deep(.app-state) { width: min(460px, calc(100% - 40px)); padding: 20px; }
+.canvas-state :deep(.app-state h3) { font: 28px/1.25 var(--font-display); white-space: normal; }
+.canvas-state :deep(.app-state p) { max-width: 360px; font-size: 14px; line-height: 1.7; }
+.canvas-state :deep(.app-state button) { min-height: 44px; padding-inline: 18px; }
+.canvas-state :deep(.app-state .text-error) { color: var(--color-lantern-300); }
 .camera-enabled :deep(canvas) { touch-action: none; }
-.camera-toolbar { position: absolute; z-index: 3; top: calc(20px + env(safe-area-inset-top)); right: calc(20px + env(safe-area-inset-right)); display: grid; justify-items: center; width: 48px; padding: 2px; color: #f8f3e8; background: #173d34ed; border: 1px solid #e4dcc33d; border-radius: 12px; box-shadow: 0 8px 28px #0c282b35; backdrop-filter: blur(16px); }
+.camera-toolbar { position: absolute; z-index: 3; top: calc(20px + env(safe-area-inset-top)); right: calc(20px + env(safe-area-inset-right)); display: grid; gap: 6px; width: 134px; color: var(--garden-control-text); }
+.camera-zoom-group, .camera-tools-group { padding: 0; border: 1px solid var(--garden-control-border); border-radius: var(--control-radius); background: var(--garden-control-bg); box-shadow: 0 3px 12px #0c282b20; }
+.camera-zoom-group { display: grid; grid-template-columns: 44px 44px 44px; align-items: center; }
+.camera-tools-group { display: grid; grid-template-columns: repeat(3, 44px); }
 .camera-toolbar button { display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--control-radius); cursor: pointer; }
-.camera-toolbar button:hover { background: #f8f3e81a; }
-.camera-toolbar .effects-active { color: #efc681; background: #efc68114; }
+.camera-toolbar button:hover:not(:disabled) { background: var(--garden-control-hover); }
+.camera-toolbar button:active:not(:disabled) { background: var(--color-garden-800); }
+.camera-toolbar .effects-active { color: var(--color-lantern-300); background: var(--garden-control-hover); }
 .camera-toolbar button:disabled { opacity: 0.45; cursor: default; }
-.camera-toolbar button:focus-visible { outline: var(--focus-width) solid #efc681; outline-offset: -2px; }
+.camera-toolbar button:focus-visible { outline: var(--focus-width) solid var(--color-lantern-300); outline-offset: -2px; }
 .camera-toolbar button > .iconify { width: 19px; height: 19px; }
-.camera-toolbar output { padding-block: 3px; font-size: 11px; font-variant-numeric: tabular-nums; }
-.camera-toolbar.camera-toolbar-loading { grid-template-columns: 44px; width: 48px; }
-.garden-help-card { max-width: min(290px, calc(100vw - 90px)); padding: 18px; border-radius: 12px; background: #fffcf5; color: #244b3b; font-size: 13px; line-height: 1.7; }
+.camera-toolbar output { text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+.camera-toolbar.camera-toolbar-loading { width: 46px; }
+.camera-toolbar-loading .camera-tools-group { grid-template-columns: 44px; }
+.garden-help-card { width: min(320px, calc(100vw - 32px)); max-height: min(520px, calc(100dvh - 48px), var(--reka-popover-content-available-height, 520px)); overflow-y: auto; overscroll-behavior: contain; padding: 20px; border-radius: var(--panel-radius); background: var(--surface-panel); color: var(--ui-text); font-size: 14px; line-height: 1.7; }
+.garden-help-card h2 { margin: 0 0 16px; font: 24px/1.25 var(--font-display); color: var(--ui-text-highlighted); letter-spacing: -0.4px; }
 .garden-help-card p + p { margin-top: 12px; }
-@media (max-width: 600px) { .camera-toolbar { top: calc(12px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right)); } }
-@media (max-height: 500px) { .camera-toolbar { grid-template-columns: repeat(2, 44px); width: 92px; } .camera-toolbar output { grid-column: 1 / -1; grid-row: 2; } }
-@media (max-height: 450px) and (min-width: 600px) { .camera-toolbar { grid-template-columns: repeat(3, 44px); width: 136px; } }
+.garden-effects-note { padding: 12px; border-radius: var(--control-radius); background: var(--garden-mist); }
+@media (max-width: 600px) { .camera-toolbar { top: calc(76px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right)); } .garden-choice-caption { left: 8px; right: 8px; bottom: 8px; padding: 14px 12px; gap: 6px; } .garden-choice-title { font-size: 24px; } }
+@media (max-width: 380px) { .garden-choice-caption { padding-inline: 10px; } .garden-choice-title { font-size: 22px; } .garden-choice-title .iconify { display: none; } }
+@media (max-height: 500px) { .camera-toolbar { gap: 4px; } .garden-choice-caption { padding-block: 10px; gap: 4px; } .garden-choice-title { font-size: 24px; } .garden-choice-description { min-height: 21px; } }
+@media (max-height: 500px) and (min-width: 601px) { .camera-toolbar { top: calc(12px + env(safe-area-inset-top)); } }
+@media (prefers-reduced-motion: reduce) { .garden-choice-title .iconify { transition: none; } }
 </style>

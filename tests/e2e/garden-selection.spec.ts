@@ -1,5 +1,7 @@
 import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
+import ru from '../../i18n/locales/ru.json' with { type: 'json' }
+import en from '../../i18n/locales/en.json' with { type: 'json' }
 
 const gardens = ['meadow', 'lake', 'grove', 'hill'] as const
 
@@ -15,19 +17,23 @@ test('overview hover zooms scenery inside fixed compact cards while captions sta
   const nextSize = (await second.boundingBox())!
   const scale = Number(await page.locator('.canvas-wrapper').getAttribute('data-projection-scale'))
   expect(nextSize.x - size.x - size.width).toBeLessThan(20 * scale)
+  const caption = first.locator('.garden-choice-caption')
+  const captionBounds = (await caption.boundingBox())!
+  const descriptionBounds = (await first.locator('.garden-choice-description').boundingBox())!
   const captionClip = {
-    x: Math.ceil(size.x + 20 * scale),
-    y: Math.ceil(size.y + size.height - 90 * scale),
-    width: Math.floor(size.width - 40 * scale),
-    height: Math.floor(70 * scale)
+    x: Math.ceil(descriptionBounds.x),
+    y: Math.ceil(descriptionBounds.y),
+    width: Math.floor(descriptionBounds.width),
+    height: Math.floor(descriptionBounds.height)
   }
-  const caption = await page.screenshot({ clip: captionClip })
+  const description = await page.screenshot({ clip: captionClip })
   await first.hover()
   await expect(first).toHaveClass(/garden-choice-active/)
   await expect(first).toHaveCSS('border-top-width', '0px')
   expect(await first.boundingBox()).toEqual(size)
+  expect(await caption.boundingBox()).toEqual(captionBounds)
   await expect.poll(async () => Buffer.compare(before, await canvas.screenshot())).not.toBe(0)
-  expect(Buffer.compare(caption, await page.screenshot({ clip: captionClip }))).toBe(0)
+  expect(Buffer.compare(description, await page.screenshot({ clip: captionClip }))).toBe(0)
   await page.screenshot({ path: testInfo.outputPath('garden-hover.png'), animations: 'disabled' })
   await second.hover()
   await expect(second).toHaveClass(/garden-choice-active/)
@@ -70,6 +76,41 @@ test('scenery zoom animates with ambient motion paused and stops after hover set
 })
 
 for (const locale of ['ru', 'en']) {
+  test(`${locale}: each garden has a readable atmosphere description instead of a capacity count`, async ({ page }) => {
+    const copy = locale === 'ru' ? ru : en
+    const requests: string[] = []
+    await page.route('**/api/gardens/*/memorials', (route) => {
+      requests.push(route.request().url())
+      return route.fulfill({ json: [] })
+    })
+    await visitLocale(page, '/gardens', locale)
+    await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
+    const descriptions = new Set<string>()
+    for (const garden of gardens) {
+      const tile = page.getByTestId(`garden-choice-${garden}`)
+      const description = copy.garden.overview[garden]
+      await expect(tile).toHaveAccessibleName(copy.garden.names[garden])
+      await expect(tile).toHaveAccessibleDescription(description)
+      const descriptionId = await tile.getAttribute('aria-describedby')
+      expect(descriptionId).toBeTruthy()
+      descriptions.add(descriptionId!)
+      const caption = tile.getByText(description, { exact: true })
+      await expect(caption).toBeVisible()
+      await expect(caption).toHaveAttribute('id', descriptionId!)
+      const metrics = await caption.evaluate(element => {
+        const box = element.getBoundingClientRect()
+        return { width: box.width, height: box.height, fontSize: Number.parseFloat(getComputedStyle(element).fontSize) }
+      })
+      expect(metrics.width).toBeGreaterThan(1)
+      expect(metrics.height).toBeGreaterThan(1)
+      expect(metrics.fontSize).toBeGreaterThanOrEqual(14)
+      await expect(tile).not.toContainText(/Memory places:|Мест памяти:|\b(?:10|12|14|16)\b/)
+    }
+    expect(descriptions.size).toBe(4)
+    // Describing a destination must not require loading every garden's records.
+    expect(requests).toEqual([])
+  })
+
   test(`${locale}: the garden overview has four tiles, selection works with touch and keyboard, and Back restores the overview`, async ({ page }, testInfo) => {
     const errors: string[] = []
     const requests: string[] = []

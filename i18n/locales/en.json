@@ -144,7 +144,8 @@
     "open": "Open: {name}, {years}, place {place}",
     "preview": "Preview: {name}, {years}, place {place}",
     "readStory": "Read the story: {name}",
-    "hint": "Select to read the story",
+    "hint": "Read the story",
+    "edit": "Edit",
     "close": "Close story",
     "back": "Return to the garden",
     "location": "{garden} garden · Place {place}",
@@ -263,21 +264,41 @@
     "switch": "Change garden",
     "previous": "Previous garden: {name}",
     "next": "Next garden: {name}",
+    "navigation": {
+      "label": "Explore neighboring gardens",
+      "previous": "Previous",
+      "next": "Next"
+    },
     "places": "Memory places: {count}",
+    "overview": {
+      "meadow": "Sunlight and wildflowers",
+      "lake": "Quiet water and gentle rain",
+      "grove": "Tree shade and rustling leaves",
+      "hill": "Open skies and a soft breeze"
+    },
     "territoryHint": "Places in this garden: {count}. Select a stone to read its story, or choose + for your own pet.",
     "note": "The garden includes fictional examples. The + markers show free places for your own stories.",
     "mapLabel": "Map of four gardens: Meadow, Lake, Grove and Hill. Select a garden, or focus it with Tab and press Enter.",
     "territoryLabel": "{name} garden: grounds with paths and abstract memorial stones for pets.",
     "loading": "Opening the garden",
-    "loadingHint": "Just a moment, then you can look around.",
+    "loadingHint": "The garden opens once all its memorials are ready.",
     "preparing": {
       "title": "The garden is waking up",
       "label": "Preparing the garden",
       "opening": "Opening the gate…",
       "stories": "Gathering stories…",
-      "places": "Preparing the memorials…"
+      "places": "Preparing the memorials…",
+      "stages": {
+        "opening": "Scenery",
+        "stories": "Stories",
+        "places": "Memorials"
+      }
     },
     "error": "The garden could not be displayed",
+    "dataError": {
+      "title": "The garden could not be opened",
+      "description": "Memorials aren't loading right now. Please try opening the garden again."
+    },
     "errorHint": "Please try again. If the map still does not appear, check that hardware acceleration is enabled in your browser.",
     "names": {
       "meadow": "Meadow",

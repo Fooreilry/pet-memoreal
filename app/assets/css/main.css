@@ -52,6 +52,10 @@
   --ui-radius: 0.25rem;
   --control-radius: 8px;
   --panel-radius: 16px;
+  --garden-control-bg: #173d34;
+  --garden-control-hover: #285346;
+  --garden-control-border: #e4dcc33d;
+  --garden-control-text: #f8f3e8;
   --focus-color: #9a6423;
   --focus-width: 2px;
   --focus-offset: 2px;
