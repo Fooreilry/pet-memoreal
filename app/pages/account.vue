@@ -93,6 +93,11 @@ async function signOut() {
         <h1>{{ t('auth.account') }}</h1>
       </div>
 
+      <nav v-if="(user?.permissions?.adminPanel ?? 0) > 0" class="account-tabs" :aria-label="t('admin.navigation')">
+        <span aria-current="page">{{ t('account.profile') }}</span>
+        <NuxtLink :to="localePath('/admin')" data-testid="admin-profile-link"><UIcon name="i-lucide-settings-2" aria-hidden="true" />{{ t('admin.title') }}</NuxtLink>
+      </nav>
+
       <AppState v-if="error" kind="error" retry @retry="refresh()" />
       <section v-else-if="user" class="account-profile" aria-labelledby="profile-heading">
         <div class="account-avatar" aria-hidden="true">{{ initials }}</div>
@@ -168,6 +173,10 @@ async function signOut() {
 .account-main { padding-block: 54px 32px; }
 .account-heading { margin-bottom: 34px; }
 .account-heading h1 { color: var(--ui-text-highlighted); font: 400 clamp(36px, 4vw, 50px)/1.2 var(--font-display); letter-spacing: -1.5px; }
+.account-tabs { display: flex; flex-wrap: wrap; gap: 12px 28px; margin-bottom: 26px; border-bottom: 1px solid #dfdacb; }
+.account-tabs > * { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 8px 2px; font-size: 14px; }
+.account-tabs > [aria-current] { border-bottom: 2px solid #315d46; color: #244b3b; }
+.account-tabs a:hover { color: #244b3b; }
 .account-profile { display: flex; align-items: flex-start; gap: 28px; border: 1px solid #dfdacb; border-radius: 22px; padding: 30px; background: #fffdf7; }
 .account-avatar { display: grid; place-items: center; flex-shrink: 0; width: 72px; height: 72px; border-radius: 50%; background: #e8eddc; color: #315d46; font: 30px var(--font-display); }
 .account-profile-content { flex: 1; min-width: 0; }

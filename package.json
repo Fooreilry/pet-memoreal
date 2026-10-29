@@ -20,9 +20,11 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file-if-exists=.env --import tsx scripts/db/migrate.ts",
     "db:seed": "node --env-file-if-exists=.env --import tsx scripts/db/seed.ts",
+    "db:admin": "node --env-file-if-exists=.env --import tsx scripts/db/admin.ts",
     "db:test": "node --env-file-if-exists=.env --import tsx --test tests/db/*.test.ts",
     "db:migrate:demo": "node --env-file=.env.vercel --import tsx scripts/db/migrate.ts --remote",
     "db:seed:demo": "node --env-file=.env.vercel --import tsx scripts/db/seed.ts --remote",
+    "db:admin:demo": "node --env-file=.env.vercel --import tsx scripts/db/admin.ts --remote",
     "deploy:check": "node --env-file=.env.vercel --import tsx scripts/check-deployment.ts",
     "postinstall": "nuxt prepare"
   },

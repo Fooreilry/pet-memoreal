@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
   const parsed = memorialUpdateSchema().safeParse(await readBody(event))
   if (!parsed.success) throw createError({ statusCode: 400, statusMessage: 'Invalid memorial' })
   try {
-    const memorial = await updateOwnedMemorial(user.id, id.data, parsed.data)
+    const memorial = await updateOwnedMemorial(user.id, id.data, parsed.data, user.role)
     if (!memorial) throw createError({ statusCode: 404, statusMessage: 'Memorial not found' })
     return memorial
   } catch (error) {

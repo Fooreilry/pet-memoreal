@@ -8,7 +8,7 @@ export default defineEventHandler(async (event) => {
   const id = z.uuid().safeParse(getRouterParam(event, 'id'))
   if (!id.success) throw createError({ statusCode: 400, statusMessage: 'Invalid memorial id' })
   try {
-    const memorial = await getOwnedMemorial(user.id, id.data)
+    const memorial = await getOwnedMemorial(user.id, id.data, user.role)
     if (!memorial) throw createError({ statusCode: 404, statusMessage: 'Memorial not found' })
     return memorial
   } catch (error) {

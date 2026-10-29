@@ -57,6 +57,13 @@
       "when": 1793197270365,
       "tag": "0007_pet_species",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793259898552,
+      "tag": "0008_role_permissions",
+      "breakpoints": true
     }
   ]
 }

@@ -2,6 +2,9 @@ import { gardenIds } from '../../../../shared/gardens'
 import type { GardenId } from '../../../../shared/gardens'
 import { listGardenMemorials } from '../../../utils/memorials'
 import { getAuth } from '../../../utils/auth'
+import { getDatabase } from '../../../db/client'
+import { user } from '../../../db/schema'
+import { eq } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
   setHeader(event, 'Cache-Control', 'no-store')
@@ -10,7 +13,10 @@ export default defineEventHandler(async (event) => {
   if (!gardenIds.includes(slug)) throw createError({ statusCode: 404, statusMessage: 'Garden not found' })
   try {
     const session = await getAuth().api.getSession({ headers: getRequestHeaders(event) as HeadersInit })
-    return await listGardenMemorials(slug, session?.user.emailVerified ? session.user.id : undefined)
+    const [viewer] = session?.user.emailVerified
+      ? await getDatabase().db.select({ id: user.id, role: user.role, emailVerified: user.emailVerified }).from(user).where(eq(user.id, session.user.id))
+      : []
+    return await listGardenMemorials(slug, viewer?.emailVerified ? viewer.id : undefined, viewer?.role)
   } catch {
     throw createError({ statusCode: 503, statusMessage: 'Memorials unavailable' })
   }

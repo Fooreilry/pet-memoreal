@@ -32,7 +32,9 @@ export default defineNuxtConfig({
     '/api/me': { headers: { 'cache-control': 'no-store' } },
     '/api/memorials/**': { headers: { 'cache-control': 'no-store' } },
     '/memorials/new': { headers: { 'cache-control': 'private, no-store' } },
-    '/account': { headers: { 'cache-control': 'private, no-store' } }
+    '/account': { headers: { 'cache-control': 'private, no-store' } },
+    '/admin': { prerender: false, headers: { 'cache-control': 'private, no-store' } },
+    '/api/admin/**': { headers: { 'cache-control': 'private, no-store' } }
   },
   i18n: {
     defaultLocale: 'en',

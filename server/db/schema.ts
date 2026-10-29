@@ -19,7 +19,7 @@ export const user = pgTable('auth_user', {
   role: text('role', { enum: userRoles }).default('user').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
-}, table => [check('auth_user_role_check', sql`${table.role} in ('user', 'admin')`)])
+}, table => [check('auth_user_role_check', sql`${table.role} in ('user', 'manager', 'developer', 'admin')`)])
 
 export const session = pgTable('auth_session', {
   id: text('id').primaryKey(),

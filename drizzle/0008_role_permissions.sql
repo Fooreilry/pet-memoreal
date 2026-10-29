@@ -1,0 +1,2 @@
+ALTER TABLE "auth_user" DROP CONSTRAINT "auth_user_role_check";--> statement-breakpoint
+ALTER TABLE "auth_user" ADD CONSTRAINT "auth_user_role_check" CHECK ("auth_user"."role" in ('user', 'manager', 'developer', 'admin'));
