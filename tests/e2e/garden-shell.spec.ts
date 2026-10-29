@@ -1,5 +1,52 @@
+import { openMemorialStory } from './helpers/memorial'
 import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
+import type { Page } from '@playwright/test'
+
+async function expectWindowMap(page: Page) {
+  await expect(page.locator('.gardens-page')).toHaveAttribute('data-expanded', 'true')
+  await expect(page.getByTestId('garden-header')).toBeHidden()
+  await expect.poll(() => page.evaluate(() => {
+    const stage = document.querySelector('.garden-stage')!.getBoundingClientRect()
+    const canvas = document.querySelector('canvas')!
+    const bounds = canvas.getBoundingClientRect()
+    const density = Math.min(devicePixelRatio || 1, 2)
+    return Math.max(Math.abs(stage.x), Math.abs(stage.y), Math.abs(stage.width - innerWidth), Math.abs(stage.height - innerHeight),
+      Math.abs(bounds.x), Math.abs(bounds.y), Math.abs(bounds.width - innerWidth), Math.abs(bounds.height - innerHeight),
+      Math.abs(canvas.width / density - innerWidth), Math.abs(canvas.height / density - innerHeight))
+  })).toBeLessThanOrEqual(1)
+  expect(await page.evaluate(() => document.fullscreenElement)).toBeNull()
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight && document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+}
+
+async function expectInsetMap(page: Page) {
+  await expect(page.locator('.gardens-page')).toHaveAttribute('data-expanded', 'false')
+  await expect(page.getByTestId('garden-header')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => {
+    const stage = document.querySelector('.garden-stage')!.getBoundingClientRect()
+    const header = document.querySelector('[data-testid="garden-header"]')!.getBoundingClientRect()
+    return stage.x > 0 && stage.y >= header.bottom && stage.right < innerWidth && stage.bottom < innerHeight
+  })).toBe(true)
+}
+
+async function forbidNativeFullscreen(page: Page) {
+  await page.addInitScript(() => {
+    const state = window as Window & { nativeFullscreenCalls: number }
+    state.nativeFullscreenCalls = 0
+    Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: false })
+    const forbidden = () => {
+      state.nativeFullscreenCalls++
+      throw new Error('The garden must expand inside the browser window')
+    }
+    Object.defineProperty(Element.prototype, 'requestFullscreen', { configurable: true, value: forbidden })
+    Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: forbidden })
+  })
+}
+
+async function expectNoNativeFullscreen(page: Page) {
+  expect(await page.evaluate(() => (window as Window & { nativeFullscreenCalls: number }).nativeFullscreenCalls)).toBe(0)
+  expect(await page.evaluate(() => document.fullscreenElement)).toBeNull()
+}
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/gardens/*/memorials', route => route.fulfill({ json: [] }))
@@ -63,14 +110,98 @@ for (const locale of ['ru', 'en']) {
   })
 }
 
-test('fullscreen closes for the creation page and stays usable after returning to the garden', async ({ page }) => {
+for (const locale of ['ru', 'en']) {
+  test(`${locale}: expanding the map fills only the browser window and preserves the camera across resize`, async ({ page }, testInfo) => {
+    await forbidNativeFullscreen(page)
+    await visitLocale(page, '/gardens?garden=hill', locale)
+    await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
+    const toggle = page.getByTestId('garden-fullscreen')
+    const expand = locale === 'ru' ? 'Развернуть карту на всё окно' : 'Expand map to window'
+    const restore = locale === 'ru' ? 'Свернуть карту' : 'Restore map size'
+    await expectInsetMap(page)
+    await expect(toggle).toBeEnabled()
+    await expect(toggle).toHaveAccessibleName(expand)
+    await page.getByTestId('garden-zoom-in').click()
+    await expect(page.locator('.camera-toolbar output')).toHaveText('125%')
+    const originalCanvas = await page.locator('canvas').elementHandle()
+    const scene = page.locator('.canvas-wrapper')
+    const sceneAttributes = ['data-session-seed', 'data-layout-version', 'data-world-width', 'data-world-height']
+    const sceneValues = await Promise.all(sceneAttributes.map(attribute => scene.getAttribute(attribute)))
+    const place = page.getByTestId('memorial-hill-1').locator('..')
+    const worldPosition = [await place.getAttribute('data-world-x'), await place.getAttribute('data-world-y')]
+    await toggle.click()
+    await expectWindowMap(page)
+    await expect(toggle).toHaveAccessibleName(restore)
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.camera-toolbar output')).toHaveText('125%')
+    await expect(place).toHaveAttribute('data-world-x', worldPosition[0]!)
+    await expect(place).toHaveAttribute('data-world-y', worldPosition[1]!)
+    await page.screenshot({ path: testInfo.outputPath(`map-window-${locale}.png`), scale: 'css', animations: 'disabled' })
+    await page.setViewportSize({ width: 844, height: 390 })
+    await expectWindowMap(page)
+    expect(await page.locator('canvas').evaluate((canvas, previous) => canvas === previous, originalCanvas)).toBe(true)
+    for (const [index, attribute] of sceneAttributes.entries()) await expect(scene).toHaveAttribute(attribute, sceneValues[index]!)
+    await expect(place).toHaveAttribute('data-world-x', worldPosition[0]!)
+    await expect(place).toHaveAttribute('data-world-y', worldPosition[1]!)
+    await expect(page.locator('.camera-toolbar output')).toHaveText('125%')
+    await expect(page.getByTestId('garden-switch')).toBeVisible()
+    await expect(page.getByTestId('garden-next')).toBeVisible()
+    await toggle.click()
+    await expectInsetMap(page)
+    await expect(toggle).toHaveAccessibleName(expand)
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.locator('.camera-toolbar output')).toHaveText('125%')
+    await toggle.click()
+    await expectWindowMap(page)
+    await page.keyboard.press('Escape')
+    await expectInsetMap(page)
+    await expect(toggle).toBeFocused()
+    await expectNoNativeFullscreen(page)
+  })
+}
+
+test('expanded map keeps story dialogs and garden menus usable and Escape dismisses them before restoring the map', async ({ page }) => {
+  await forbidNativeFullscreen(page)
+  await visitLocale(page, '/gardens?garden=hill', 'en')
+  const toggle = page.getByTestId('garden-fullscreen')
+  await toggle.click()
+  await expectWindowMap(page)
+  const first = page.getByTestId('memorial-hill-1')
+  await first.focus()
+  await expect(first).toBeInViewport()
+  await openMemorialStory(page, first)
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expectWindowMap(page)
+  await expect(first).toBeFocused()
+  await page.getByTestId('garden-switch').click()
+  await expect(page.getByTestId('garden-overview')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('garden-overview')).toHaveCount(0)
+  await expectWindowMap(page)
+  await page.getByTestId('garden-next').click()
+  await expect(page).toHaveURL(/\/gardens\?garden=meadow$/)
+  await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
+  await expectWindowMap(page)
+  await page.getByTestId('garden-switch').click()
+  await page.getByTestId('garden-overview').click()
+  await expect(page).toHaveURL(/\/gardens$/)
+  await expect(page.getByTestId('garden-choices').getByRole('button')).toHaveCount(4)
+  await expectInsetMap(page)
+  await expect(page.getByTestId('garden-fullscreen')).toHaveCount(0)
+  await expectNoNativeFullscreen(page)
+})
+
+test('window expansion ends on the creation page and starts inset after returning to the garden', async ({ page }) => {
+  await forbidNativeFullscreen(page)
   await page.route('**/api/me', route => route.fulfill({ json: { id: 'preview-user', name: 'Preview', emailVerified: true } }))
   await visitLocale(page, '/gardens?garden=lake', 'en')
   const toggle = page.getByTestId('garden-fullscreen')
   await expect(toggle).toBeEnabled()
   await toggle.click()
-  await expect.poll(() => page.evaluate(() => document.fullscreenElement === document.documentElement)).toBe(true)
-  await expect(toggle).toHaveAccessibleName('Exit fullscreen')
+  await expectWindowMap(page)
+  await expect(toggle).toHaveAccessibleName('Restore map size')
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await page.getByTestId('garden-zoom-in').click()
   const empty = page.getByTestId('empty-lake-3')
@@ -81,34 +212,84 @@ test('fullscreen closes for the creation page and stays usable after returning t
   await expect(page.getByTestId('memorial-create-page')).toBeVisible()
   await expect(page.getByLabel('Pet’s name', { exact: true })).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull()
+  await expect(page.locator('.gardens-page-expanded')).toHaveCount(0)
+  await expect(page.getByTestId('garden-header')).toBeVisible()
+  await expectNoNativeFullscreen(page)
   await page.getByTestId('memorial-create-cancel').click()
   await expect(page).toHaveURL(/\/gardens\?garden=lake$/)
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
+  await expectInsetMap(page)
+  await expect(toggle).toHaveAccessibleName('Expand map to window')
   await expect(page.locator('.camera-toolbar output')).toHaveText('100%')
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-  await page.evaluate(() => document.exitFullscreen())
-  await expect(toggle).toHaveAccessibleName('Enter fullscreen')
+  await page.keyboard.press('Escape')
+  await expectInsetMap(page)
+  await expect(toggle).toHaveAccessibleName('Expand map to window')
   await expect(page.locator('.camera-toolbar output')).toHaveText('100%')
   await page.getByTestId('garden-zoom-in').click()
   await expect(page.locator('.camera-toolbar output')).toHaveText('125%')
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await toggle.click()
-  await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull()
+  await expectInsetMap(page)
+  await expectNoNativeFullscreen(page)
 })
 
-test('an unsupported fullscreen API leaves the garden and zoom usable', async ({ page }) => {
-  await page.addInitScript(() => Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: false }))
+test('a map waiting for the neighboring garden can be restored before its data finishes loading', async ({ page }) => {
+  await forbidNativeFullscreen(page)
+  let release!: () => void
+  const loading = new Promise<void>((resolve) => { release = resolve })
+  await page.route('**/api/gardens/meadow/memorials', async (route) => {
+    await loading
+    await route.fulfill({ json: [] })
+  })
+  try {
+    await visitLocale(page, '/gardens?garden=hill', 'en')
+    await page.getByTestId('garden-fullscreen').click()
+    await expectWindowMap(page)
+    await page.getByTestId('garden-next').click()
+    await expect(page).toHaveURL(/\/gardens\?garden=meadow$/)
+    await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'loading')
+    const restore = page.getByTestId('garden-fullscreen')
+    await expect(restore).toHaveAccessibleName('Restore map size')
+    await expect(restore).toBeEnabled()
+    await expect(page.locator('.camera-toolbar button')).toHaveCount(1)
+    await restore.click()
+    await expectInsetMap(page)
+    await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'loading')
+    await expect(page.locator('.camera-toolbar')).toHaveCount(0)
+  } finally { release() }
+  await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
+  await expectInsetMap(page)
+  await expect(page.getByTestId('garden-fullscreen')).toHaveAccessibleName('Expand map to window')
+  await expectNoNativeFullscreen(page)
+})
+
+test('a failed neighboring garden keeps window restoration available and retries in the inset view', async ({ page }) => {
+  await forbidNativeFullscreen(page)
+  let unavailable = true
+  await page.route('**/api/gardens/meadow/memorials', route => route.fulfill(unavailable
+    ? { status: 503, json: { statusMessage: 'Memorials unavailable' } }
+    : { json: [] }))
   await visitLocale(page, '/gardens?garden=hill', 'en')
-  await expect(page.getByTestId('garden-fullscreen')).toBeDisabled()
-  await expect(page.getByTestId('garden-fullscreen')).toHaveAttribute('title', 'Fullscreen is unavailable in this browser')
-  await page.getByTestId('garden-zoom-in').click()
-  await expect(page.locator('.camera-toolbar output')).toHaveText('125%')
-  const first = page.getByTestId('memorial-hill-1')
-  await first.focus()
-  await expect(first).toBeInViewport()
-  await first.click()
-  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.getByTestId('garden-fullscreen').click()
+  await expectWindowMap(page)
+  await page.getByTestId('garden-next').click()
+  await expect(page).toHaveURL(/\/gardens\?garden=meadow$/)
+  await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'error')
+  const restore = page.getByTestId('garden-fullscreen')
+  await expect(restore).toHaveAccessibleName('Restore map size')
+  await expect(restore).toBeEnabled()
+  await expect(page.locator('.camera-toolbar button')).toHaveCount(1)
+  await expect(page.getByTestId('garden-header')).toBeHidden()
+  await restore.click()
+  await expectInsetMap(page)
+  await expect(page.locator('.camera-toolbar')).toHaveCount(0)
+  unavailable = false
+  await page.locator('.canvas-state').getByRole('button').click()
+  await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
+  await expectInsetMap(page)
+  await expect(page.getByTestId('garden-fullscreen')).toHaveAccessibleName('Expand map to window')
+  await expectNoNativeFullscreen(page)
 })

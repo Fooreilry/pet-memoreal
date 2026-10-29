@@ -1,3 +1,4 @@
+import { openMemorialStory } from './helpers/memorial'
 import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
@@ -5,9 +6,11 @@ import type { Page } from '@playwright/test'
 const gardens = ['meadow', 'lake', 'grove', 'hill'] as const
 const kinds = ['arch', 'boulder', 'stele', 'tablet']
 
-async function ready(page: Page) {
-  await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
+async function ready(page: Page, garden: typeof gardens[number], demoPlaces = 4) {
+  // Wait for this garden's markers, not the previous scene still leaving the DOM.
+  await expect(page.locator(`.memorial-hit[data-monument-kind][data-testid^="memorial-${garden}-"]`)).toHaveCount(demoPlaces)
   await expect(page.locator('.memorial-hit[data-monument-kind]')).toHaveCount(4)
+  await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
 }
 
 async function styles(page: Page) {
@@ -33,7 +36,7 @@ test('each garden has four distinct monument forms with usable stories at increa
       await page.getByTestId('garden-switch').click()
       await page.getByTestId(`garden-${garden}`).click()
     }
-    await ready(page)
+    await ready(page, garden)
     const records = await styles(page)
     expect(records.map(record => record.kind).sort()).toEqual(kinds)
     await expect(page.locator('.memorial-empty[data-monument-kind]')).toHaveCount(0)
@@ -43,8 +46,7 @@ test('each garden has four distinct monument forms with usable stories at increa
     await stone.focus()
     await expect(stone).toBeInViewport()
     await page.locator('canvas').screenshot({ path: testInfo.outputPath(`monuments-${garden}.png`) })
-    if (isMobile) await stone.tap()
-    else await stone.click()
+    await openMemorialStory(page, stone, isMobile)
     await expect(page.getByRole('dialog').locator('.memorial-location')).toContainText('Место 1')
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -57,7 +59,7 @@ test('each garden has four distinct monument forms with usable stories at increa
 test('monument forms stay attached to their places after resize, reload and language changes', async ({ page }) => {
   await page.route('**/api/gardens/*/memorials', route => route.fulfill({ json: [] }))
   await visitLocale(page, '/gardens?garden=grove', 'ru')
-  await ready(page)
+  await ready(page, 'grove')
   const original = await styles(page)
   for (const record of original) {
     expect(Number(record.x)).toBeGreaterThan(0)
@@ -69,13 +71,15 @@ test('monument forms stay attached to their places after resize, reload and lang
     await expect.poll(() => styles(page)).toEqual(original)
   }
   await page.reload()
-  await ready(page)
+  await ready(page, 'grove')
   expect(await styles(page)).toEqual(original)
   await page.getByRole('link', { name: 'Switch to English', exact: true }).click()
   await expect(page).toHaveURL(/\/gardens\?garden=grove$/)
-  await ready(page)
+  await ready(page, 'grove')
   expect(await styles(page)).toEqual(original)
   await page.getByTestId('memorial-grove-16').focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('memorial-summary')).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('dialog').locator('.memorial-location')).toContainText('Place 16')
 })
@@ -89,17 +93,19 @@ test('a saved memorial keeps the form of its place and opens for a guest by keyb
   let saved = false
   await page.route('**/api/gardens/*/memorials', route => route.fulfill({ json: saved ? [record] : [] }))
   await visitLocale(page, '/gardens?garden=meadow', 'en')
-  await ready(page)
+  await ready(page, 'meadow')
   const originalKind = await page.getByTestId('memorial-meadow-1').getAttribute('data-monument-kind')
   expect(kinds).toContain(originalKind)
   saved = true
   await page.reload()
-  await ready(page)
+  await ready(page, 'meadow', 3)
   await expect(page.getByTestId('memorial-meadow-1')).toHaveCount(0)
   const stone = page.getByTestId(`memorial-${record.id}`)
   await expect(stone).toHaveAttribute('data-monument-kind', originalKind!)
   await page.getByTestId('garden-zoom-in').click()
   await stone.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('memorial-summary')).toBeFocused()
   await page.keyboard.press('Enter')
   const dialog = page.getByRole('dialog')
   await expect(dialog).toHaveAccessibleName('Poppy')

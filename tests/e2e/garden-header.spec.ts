@@ -1,4 +1,5 @@
 import { visitLocale } from './helpers/locale'
+import { openMemorialStory } from './helpers/memorial'
 import { randomUUID } from 'node:crypto'
 import pg from 'pg'
 import { hashPassword } from 'better-auth/crypto'
@@ -136,7 +137,7 @@ for (const locale of ['ru', 'en']) {
     await expect(stone).toBeVisible()
     await stone.focus()
     await expect(stone).toBeInViewport()
-    await stone.click()
+    await openMemorialStory(page, stone, isMobile)
     await expect(page.getByRole('dialog')).toHaveAccessibleName('Луна')
     await page.keyboard.press('Escape')
     await openAccount(page, isMobile)

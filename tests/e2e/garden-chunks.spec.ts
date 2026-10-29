@@ -101,6 +101,8 @@ for (const garden of gardens) {
       await expect(button).toBeEnabled()
       if (await button.getAttribute('data-monument-kind')) {
         await page.keyboard.press('Enter')
+        await expect(page.getByTestId('memorial-summary')).toBeFocused()
+        await page.keyboard.press('Enter')
         await expect(page.getByRole('dialog')).toBeVisible()
         await page.keyboard.press('Escape')
         await expect(page.getByRole('dialog')).toHaveCount(0)

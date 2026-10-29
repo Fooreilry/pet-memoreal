@@ -3,11 +3,19 @@ import { randomUUID } from 'node:crypto'
 import pg from 'pg'
 import { hashPassword } from 'better-auth/crypto'
 import { expect, test as base } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import { getDatabaseOptions } from '../../server/db/config'
 import { signInFixture } from './helpers/sign-in'
 import { expectCompactFocus, expectFieldTextSeparated, expectModestCorners } from './helpers/ui-controls'
 
 const origin = 'http://127.0.0.1:4173'
+
+async function captureFullPage(page: Page, path: string) {
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }))
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
+  await page.screenshot({ path, fullPage: true, animations: 'disabled' })
+}
+
 const test = base.extend<{ member: { id: string, email: string } }>({
   member: [async ({ page, baseURL }, use) => {
     const database = process.env.E2E_DATABASE
@@ -56,7 +64,7 @@ for (const locale of ['ru', 'en']) {
     expect(logoutIsRed).toBe(true)
     await expect(exit).toHaveCSS('color', 'rgb(255, 255, 255)')
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    await page.screenshot({ path: testInfo.outputPath('account-empty.png'), fullPage: true })
+    await captureFullPage(page, testInfo.outputPath('account-empty.png'))
 
     const edit = page.getByRole('button', { name: ru ? 'Изменить' : 'Edit', exact: true })
     await edit.click()
@@ -81,8 +89,16 @@ for (const locale of ['ru', 'en']) {
     await name.fill('  Александра  ')
     await surname.fill('  Иванова  ')
     await page.screenshot({ path: testInfo.outputPath('account-profile-edit.png'), animations: 'disabled' })
-    await page.route('**/api/auth/update-user', route => route.fulfill({ status: 503, json: { message: 'Unavailable' } }))
-    await save.click()
+    const idleSave = (await save.boundingBox())!
+    let releaseSave: () => void = () => {}
+    const heldSave = new Promise<void>((resolve) => { releaseSave = resolve })
+    await page.route('**/api/auth/update-user', async (route) => { await heldSave; await route.fulfill({ status: 503, json: { message: 'Unavailable' } }) })
+    try {
+      await save.click()
+      await expect(save).toBeDisabled()
+      const pendingSave = (await save.boundingBox())!
+      for (const dimension of ['x', 'width', 'height'] as const) expect(Math.abs(pendingSave[dimension] - idleSave[dimension])).toBeLessThanOrEqual(1)
+    } finally { releaseSave() }
     await expect(dialog.getByRole('alert')).toBeVisible()
     await expect(surname).toHaveValue('  Иванова  ')
     await page.unroute('**/api/auth/update-user')
@@ -99,6 +115,12 @@ for (const locale of ['ru', 'en']) {
     await edit.click()
     await surname.fill('Не сохранять')
     await dialog.getByRole('button', { name: ru ? 'Отмена' : 'Cancel', exact: true }).click()
+    await expect(page.getByTestId('unsaved-changes-dialog')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('unsaved-changes-dialog')).toHaveCount(0)
+    await expect(surname).toHaveValue('Не сохранять')
+    await dialog.getByRole('button', { name: ru ? 'Отмена' : 'Cancel', exact: true }).click()
+    await page.getByTestId('unsaved-discard').click()
     await expect(edit).toBeFocused()
     await edit.click()
     await expect(surname).toHaveValue('Иванова')
@@ -147,8 +169,11 @@ for (const locale of ['ru', 'en']) {
     await expect(list.locator('.account-card-open')).toHaveText(ru ? 'Перейти к месту' : 'Go to memorial')
     await expect(list).toContainText(ru ? 'Роща' : 'Grove')
     await expect(list).toContainText('Любил солнце')
+    await expect(list.locator('.account-pet-mark .pet-species-icon')).toHaveAttribute('data-species', 'dog')
+    await expectModestCorners(page.locator('.account-profile'), 16)
+    await expectModestCorners(list.locator('.account-memorial-card'), 16)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    await page.screenshot({ path: testInfo.outputPath('account-memorials.png'), fullPage: true })
+    await captureFullPage(page, testInfo.outputPath('account-memorials.png'))
     await list.getByRole('link', { name: /Мило/ }).click()
     await expect(page).toHaveURL(new RegExp(`/gardens\\?garden=grove&memorial=${memorial.id}`))
     await expect(page.getByRole('dialog')).toHaveAccessibleName('Мило')

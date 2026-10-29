@@ -5,6 +5,7 @@ const route = useRoute()
 const request = useRequestFetch()
 const auth = useAuthClient()
 const toast = useToast()
+const draftExit = useNuxtApp().$draftExit
 const { data: signedIn } = await useAsyncData('garden-header-auth', async () => {
   try {
     // The protected endpoint validates the session directly, including email verification.
@@ -85,20 +86,56 @@ function outsidePointer(event: PointerEvent) {
   if (!accountMenu.value?.contains(event.target as Node)) open.value = false
 }
 
+async function visitProfile(event: MouseEvent) {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  event.preventDefault()
+  const destination = localePath('/account')
+  open.value = false
+  await navigateTo(destination)
+  if (route.path !== destination) {
+    await nextTick()
+    accountTrigger.value?.focus()
+  }
+}
+
 async function signOut() {
   if (busy.value) return
   busy.value = true
+  let permit: Awaited<ReturnType<typeof draftExit.prepare>> = undefined
+  let completed = false
   try {
-    const result = await auth.signOut()
-    if (result.error) throw new Error('Sign out failed')
+    permit = await draftExit.prepare()
+    if (!permit) return
+    let signedOut = false
+    try {
+      const result = await auth.signOut({ fetchOptions: { timeout: 15_000, retry: 0 } })
+      signedOut = !result.error
+    } catch {
+      // A timeout can hide a completed logout; only an authoritative 401 confirms it.
+    }
+    if (!signedOut) {
+      try {
+        await $fetch('/api/me', { retry: 0, timeout: 5_000 })
+      } catch (error) {
+        signedOut = (error as { statusCode?: number }).statusCode === 401
+      }
+    }
+    if (!signedOut) throw new Error('Sign out failed')
+    permit.commit()
     clearNuxtData()
     signedIn.value = false
     open.value = false
+    completed = true
     await navigateTo(localePath('/'), { replace: true })
   } catch {
     toast.add({ title: t('auth.errors.generic'), color: 'error' })
   } finally {
+    permit?.finish()
     busy.value = false
+    if (!completed) {
+      await nextTick()
+      accountTrigger.value?.focus()
+    }
   }
 }
 
@@ -123,7 +160,7 @@ onBeforeUnmount(() => {
         <button :id="`${menuId}-trigger`" ref="accountTrigger" type="button" class="garden-account-trigger" :aria-label="t('account.menu')" aria-haspopup="menu" :aria-expanded="open" :aria-controls="open ? menuId : undefined" :disabled="!ready || busy" :aria-busy="busy" :data-authenticated="!!signedIn" data-testid="garden-account-menu" @click="toggleMenu"><UIcon :name="busy ? 'i-lucide-loader-circle' : 'i-lucide-user-round'" :class="{ 'animate-spin': busy }" aria-hidden="true" /></button>
         <div v-if="open" :id="menuId" role="menu" :aria-labelledby="`${menuId}-trigger`" class="garden-account-dropdown">
           <template v-if="signedIn">
-            <NuxtLink :to="localePath('/account')" role="menuitem" tabindex="-1" @click="open = false"><UIcon name="i-lucide-user-round" aria-hidden="true" />{{ t('account.openProfile') }}</NuxtLink>
+            <a :href="localePath('/account')" role="menuitem" tabindex="-1" @click="visitProfile"><UIcon name="i-lucide-user-round" aria-hidden="true" />{{ t('account.openProfile') }}</a>
             <button type="button" role="menuitem" tabindex="-1" :disabled="busy" @click="signOut"><UIcon name="i-lucide-log-out" aria-hidden="true" />{{ t('auth.signOut') }}</button>
           </template>
           <template v-else>

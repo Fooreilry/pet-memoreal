@@ -1,4 +1,13 @@
 {
+  "unsaved": {
+    "title": "Leave without saving?",
+    "description": "You have unsaved changes. If you leave now, those changes will be lost.",
+    "keep": "Keep editing",
+    "discard": "Discard changes",
+    "pendingTitle": "Saving your changes",
+    "pendingDescription": "Wait for saving to finish before leaving this page.",
+    "wait": "Wait for saving"
+  },
   "account": {
     "navigation": "Account navigation",
     "personalSpace": "Your personal space",
@@ -39,12 +48,16 @@
     "species": "Animal type",
     "speciesPlaceholder": "Choose an animal",
     "speciesSearch": "Find an animal",
+    "clearSpeciesSearch": "Clear search",
     "speciesEmpty": "No animals found. Try another name.",
     "otherSpecies": "Other pet",
     "born": "Year of birth",
     "died": "Year of passing",
     "story": "Your pet’s story",
     "storyHelp": "Up to 5000 characters. You can use several paragraphs.",
+    "storyCount": "{count} of {limit} characters",
+    "detailsHeading": "About your pet",
+    "visibilityHeading": "Author attribution",
     "garden": "Garden",
     "submit": "Save memorial",
     "anonymous": "Remain anonymous",
@@ -91,12 +104,13 @@
     }
   },
   "landing": {
-    "intro": "Keep your pet’s name, story and little habits close. A quiet garden with room for everything you want to remember.",
-    "heroNote": "Create a memorial for free. Return whenever you wish.",
+    "intro": "Keep your pet’s name, life dates and story in one of four shared gardens. Return to the memories and share them with the people you love.",
+    "heroNote": "Creating a memorial is free.",
+    "heroActionHint": "Start with a free account, then choose a garden.",
     "scroll": "Meet the garden",
     "journeyNote": "You don’t need the perfect words. Start with what you want to remember.",
-    "valuesDescription": "Visit every day or return after a while. There’s no rush, nothing to keep tidy and no need to explain how you feel. Your friend’s story will stay right here.",
-    "valuesAside": "Share this quiet place with the people who remember them, too.",
+    "valuesDescription": "Memorials are open to every visitor. Choose “Remain anonymous” to hide your name beside the story. The story itself will still be public.",
+    "valuesAside": "Share only what you feel comfortable telling others.",
     "pauseMotion": "Pause the fireflies",
     "motionOn": "Fireflies",
     "motionOff": "Paused",
@@ -105,9 +119,9 @@
       "At your own pace",
       "For every beloved pet"
     ],
-    "discoverLabel": "Four gardens. Your story.",
-    "discoverTitle": "Where would you feel close again?",
-    "discoverDescription": "Among wildflowers, beside still water, beneath the trees or under an open sky. Choose a garden that reminds you of your friend.",
+    "discoverLabel": "Four quiet gardens",
+    "discoverTitle": "Find a place that feels right.",
+    "discoverDescription": "Each garden has its own character. After signing up, you can choose one and find a free spot for your pet’s memorial.",
     "gardens": {
       "meadow": "Sunlit paths and wildflowers",
       "lake": "Still water and a quiet shore",
@@ -115,9 +129,10 @@
       "hill": "Open skies and wind in the grass"
     },
     "invitationLabel": "Whenever you feel ready",
-    "invitationTitle": "A little corner for them.\nA world of memories for you.",
-    "invitationDescription": "Start with a name and whatever you wish to tell. Your friend’s story has a place in the garden.",
-    "invitationNote": "You can simply take a walk first. The garden is open to everyone.",
+    "invitationTitle": "Start with what\nyou want to remember.",
+    "invitationDescription": "Create an account, choose a free spot in a garden and tell your pet’s story.",
+    "invitationNote": "You can add more to the story later from your account.",
+    "loginPrompt": "Already have an account?",
     "accountNote": "Your stories and memorials are always close at hand in your account."
   },
   "memorial": {
@@ -127,6 +142,8 @@
     "remembered": "Love stays with us",
     "places": "Pet memorial places",
     "open": "Open: {name}, {years}, place {place}",
+    "preview": "Preview: {name}, {years}, place {place}",
+    "readStory": "Read the story: {name}",
     "hint": "Select to read the story",
     "close": "Close story",
     "back": "Return to the garden",
@@ -208,10 +225,8 @@
       "out": "Zoom out of the garden",
       "scale": "Garden zoom level",
       "reset": "Whole garden",
-      "fullscreen": "Enter fullscreen",
-      "exitFullscreen": "Exit fullscreen",
-      "fullscreenUnavailable": "Fullscreen is unavailable in this browser",
-      "fullscreenError": "Fullscreen could not be opened. Please try again.",
+      "fullscreen": "Expand map to window",
+      "exitFullscreen": "Restore map size",
       "instructions": "Garden controls and help",
       "help": "Drag with a mouse or finger. Zoom with the wheel, a two-finger pinch or the + and − buttons. With a keyboard: focus the map, use arrows and +/−, and press Home for the whole garden."
     },
@@ -282,23 +297,25 @@
     ]
   },
   "meta": {
-    "title": "PetMemoreal — a place for lasting memories",
-    "description": "A quiet online garden in memory of beloved pets. Stories, small gestures of love, and a place to return to in your own time."
+    "title": "PetMemoreal — a garden for pet memories",
+    "description": "Keep your pet’s name, life dates and story in one of four shared gardens. Return to their memorial and share it with the people you love."
   },
   "nav": {
     "skip": "Skip to content",
+    "main": "Main navigation",
     "about": "The garden",
+    "gardens": "The gardens",
     "how": "How it works",
     "questions": "Questions",
     "language": "Переключить на русский"
   },
   "hero": {
-    "label": "A garden in memory of beloved pets",
+    "label": "An online garden in memory of pets",
     "title": "Love stays.",
     "accent": "Give it a place.",
-    "description": "Keep your pet’s story in a quiet garden and return to the memories you treasure.",
+    "description": "Keep your pet’s name, life dates and story in a quiet shared garden.",
     "primary": "Create a memorial",
-    "secondary": "Choose a garden",
+    "secondary": "Sign in to the garden",
     "note": "Keep what matters close.",
     "artLabel": "An evening lakeside garden with a tree, lanterns and flowers",
     "artCaption": "A small place. A great love.",
@@ -309,31 +326,31 @@
   },
   "about": {
     "label": "More than a name and dates",
-    "title": "Their little habits.\nYour favourite paths.\nA whole life together.",
-    "description": "How they greeted you at the door. Where they loved to sleep. The walks that made you happy. Little moments tell the bigger story of your friendship.",
-    "detail": "Here, that story has a place you can return to."
+    "title": "Their little habits.\nA whole life together.",
+    "description": "How they greeted you at the door. Where they loved to sleep. The toy they brought you, again and again. Little moments tell the story of your friendship.",
+    "detail": "Save one favourite moment or tell the whole story."
   },
   "how": {
     "label": "Your place in the garden",
-    "title": "Keep what matters, one step at a time.",
+    "title": "From the first words\nto a place of your own.",
     "items": [
       {
         "title": "Find your quiet corner",
-        "description": "Choose a garden and a free spot on the map. Beside the water, among flowers or in the shade — wherever feels right."
+        "description": "Create an account and confirm your email. Choose a garden, then select a free spot marked with a “+”."
       },
       {
         "title": "Tell your friend’s story",
-        "description": "Add a name, years of life and a story. A tender moment, a funny habit or just a few words that matter."
+        "description": "Add their name, kind of animal and life dates. Tell a story: a favourite habit, a funny moment or a few words you treasure."
       },
       {
-        "title": "Return to your memories",
-        "description": "Visit your memorial from your account. Share its link with the people who remember your friend too."
+        "title": "Return whenever you wish",
+        "description": "Find your memorial in your account. Open it in the garden, add to the story and share its link with the people you love."
       }
     ]
   },
   "values": {
-    "label": "No hurry. No expectations.",
-    "title": "Everyone remembers in their own way.",
+    "label": "Choose how to sign your story",
+    "title": "Their story.\nYour name is optional.",
     "items": [
       {
         "title": "A place for every pet",
@@ -350,20 +367,20 @@
     ]
   },
   "faq": {
-    "label": "A little more to know",
-    "title": "The things that matter.",
+    "label": "Before you begin",
+    "title": "A few things to know.",
     "items": [
       {
-        "question": "How do I create a memorial?",
-        "answer": "Sign in, choose a garden and select a free spot marked with a “+”. Add your pet’s name, years of life and story. Once saved, the memorial appears in the garden and in your account."
+        "question": "Is creating a memorial free?",
+        "answer": "Yes. You can create a memorial and save your pet’s story for free. You’ll need an account with a confirmed email address."
       },
       {
-        "question": "What if I don’t visit for a while?",
-        "answer": "Your place and story will stay. Come back whenever you wish — there are no visits to keep up with."
+        "question": "Who can read the story?",
+        "answer": "Anyone visiting the garden, including people without an account. Remaining anonymous only hides your name as the author: your pet’s name and story stay public."
       },
       {
-        "question": "Who can read my pet’s story?",
-        "answer": "Stories in the garden are open to all visitors. Share only what you feel comfortable keeping in this shared space of remembrance."
+        "question": "Can I change the story later?",
+        "answer": "Yes. Open your memorial from your account and select the pencil in its full story card. You can change your pet’s details, story and author name visibility. The spot in the garden stays the same."
       },
       {
         "question": "How can I invite friends and family?",
@@ -445,12 +462,19 @@
     "resend": "Resend confirmation email",
     "createAccount": "Create an account",
     "backToLogin": "Back to sign in",
+    "accountPrompts": {
+      "login": "New here?",
+      "register": "Already have an account?"
+    },
+    "emailConfirmationHelp": "No confirmation email?",
     "forgotPassword": "Forgot your password?",
     "account": "My account",
     "welcome": "Hello, {name}",
     "emptyTitle": "Your places of remembrance will be here",
     "emptyDescription": "Your account is ready. Memorial creation is coming in the next stage while we prepare the garden.",
     "signOut": "Sign out",
+    "signingOut": "Signing out",
+    "signingOutDescription": "Ending your session. Please wait.",
     "home": "Home",
     "errors": {
       "generic": "We could not complete your request. Please try again shortly.",
@@ -465,7 +489,32 @@
     "navigation": "Account sections",
     "intro": "Users, gardens and places of remembrance in one place.",
     "refresh": "Refresh",
+    "refreshing": "Refreshing data. You can keep reading.",
+    "pageSections": "Administration sections",
+    "gardenOccupancy": "{garden}: {occupied} of {capacity} places occupied",
+    "usersManageHint": "Choose a role and save the change. You will review the user’s new permissions before applying them.",
+    "usersReadHint": "Roles are shown for reference. Only administrators can change them.",
+    "memorialsManageHint": "Open a place in its garden or edit its story.",
+    "memorialsReadHint": "Open a place in its garden to read the full story.",
+    "ownRole": "You cannot change your own role.",
+    "roleChangeTitle": "Change this user’s role?",
+    "roleChangeDescription": "{name}: {from} → {to}.",
+    "roleChangeWarning": "The new permissions take effect immediately, including in the user’s active sessions.",
+    "changeRole": "Change role",
+    "roleSaved": "The role for {name} is now {role}.",
+    "roleError": "We could not change the role. Your choice is still in the form. Please try again.",
+    "deleteError": "We could not confirm deletion. Refresh the data before trying again.",
+    "memorialDeleted": "The memorial for {name} was deleted.",
+    "staleTitle": "We could not refresh the data",
+    "staleDescription": "You are viewing the previous copy. Changes are temporarily unavailable. Refresh the data to continue.",
+    "accessHints": {
+      "0": "Access to this data is unavailable.",
+      "1": "You can view data without making changes in this panel.",
+      "2": "You can view and edit memorials.",
+      "3": "You can use every action, including changing roles and deleting memorials."
+    },
     "access": "Your access",
+    "permissionDetails": "Permission details",
     "gardens": "Gardens",
     "occupied": "places occupied",
     "users": "Users",

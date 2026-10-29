@@ -1,10 +1,20 @@
 import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
+import type { Locator } from '@playwright/test'
+import ru from '../../i18n/locales/ru.json' with { type: 'json' }
+import en from '../../i18n/locales/en.json' with { type: 'json' }
 
 const cases = [
-  { locale: 'ru', title: 'Любовь остаётся.', question: 'Как создать место памяти?', answer: 'Войдите в аккаунт, выберите сад' },
-  { locale: 'en', title: 'Love stays.', question: 'How do I create a memorial?', answer: 'Sign in, choose a garden' }
+  { locale: 'ru', messages: ru },
+  { locale: 'en', messages: en }
 ]
+
+async function expectTouchTarget(target: Locator) {
+  await expect(target).toBeVisible()
+  const box = (await target.boundingBox())!
+  expect(box.width).toBeGreaterThanOrEqual(44)
+  expect(box.height).toBeGreaterThanOrEqual(44)
+}
 
 for (const copy of cases) {
   test(`${copy.locale}: the static landing shows every answer without account requests or moving controls`, async ({ page }, testInfo) => {
@@ -17,7 +27,7 @@ for (const copy of cases) {
     })
     await page.emulateMedia({ reducedMotion: 'no-preference' })
     await visitLocale(page, `/`, copy.locale)
-    await expect(page.getByRole('heading', { level: 1 })).toContainText(copy.title)
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(copy.messages.hero.title)
     await expect(page.locator('html')).toHaveAttribute('lang', copy.locale)
     await expect(page).toHaveTitle(/PetMemoreal/)
     await expect(page.locator('meta[name="description"]')).toHaveAttribute('content', /\S/)
@@ -29,14 +39,19 @@ for (const copy of cases) {
       await expect(answer.getByRole('heading', { level: 3 })).toBeVisible()
       await expect(answer.locator('p')).toBeVisible()
     }
-    await expect(page.getByRole('heading', { level: 3, name: copy.question, exact: true })).toBeVisible()
-    await expect(page.getByText(copy.answer, { exact: false })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 3, name: copy.messages.faq.items[0]!.question, exact: true })).toBeVisible()
+    await expect(page.getByText(copy.messages.faq.items[0]!.answer, { exact: true })).toBeVisible()
     for (const garden of ['meadow', 'lake', 'grove', 'hill']) {
       const card = page.getByTestId(`discover-${garden}`)
       await expect(card).toBeVisible()
       await expect(card).toHaveJSProperty('tagName', 'ARTICLE')
       await expect(card.locator('a, button')).toHaveCount(0)
     }
+    await expect(page.locator('.door-number')).toHaveCount(0)
+    const privacy = page.locator('.values-description')
+    await expect(privacy).toContainText(copy.messages.landing.valuesDescription)
+    await expect(privacy).toContainText(copy.locale === 'ru' ? /общедоступной/ : /still be public/)
+    await expect(privacy).toContainText(copy.locale === 'ru' ? /ваше имя не будет показано/ : /hide your name/)
     const text = await page.locator('.landing').innerText()
     expect(text).not.toMatch(/в разработке|планируем|будущий мир|будущего сада|will be available|we plan|still growing|future garden/i)
     expect(text).not.toMatch(/зажгите свечу|оставьте цветок|любимая фотография|light a candle|leave a flower|favourite photo/i)
@@ -61,6 +76,15 @@ for (const copy of cases) {
     expect(moving).toBe(0)
     expect(accountRequests).toEqual([])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    // The unfocused skip link stays outside the real viewport even after scrolling.
+    expect(await page.locator('.skip-link').evaluate(element => element.getBoundingClientRect().bottom)).toBeLessThan(0)
+    await page.evaluate(async () => {
+      await document.fonts.ready
+      window.scrollTo({ top: 0, behavior: 'instant' })
+    })
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(0)
+    await expect(page.getByTestId('back-to-top')).toBeHidden()
+    await page.mouse.move(0, 0)
     await page.screenshot({ path: testInfo.outputPath('landing.png'), fullPage: true })
     expect(errors).toEqual([])
   })
@@ -115,14 +139,17 @@ for (const copy of cases) {
     await visitLocale(page, `/`, copy.locale)
     const primary = page.locator('.hero-actions a').first()
     const secondary = page.locator('.hero-actions a').last()
-    await expect(primary).toHaveAccessibleName(copy.locale === 'ru' ? 'Создать место памяти' : 'Create a memorial')
+    await expect(primary).toHaveAccessibleName(copy.messages.hero.primary)
     await expect(primary).toHaveAttribute('href', `/register`)
     await expect(secondary).toHaveAttribute('href', `/login`)
+    await expect(secondary).toHaveAccessibleName(copy.messages.hero.secondary)
+    await expect(page.getByText(copy.messages.landing.heroActionHint, { exact: false })).toBeVisible()
     await expect(page.locator('.auth-header-login')).toHaveAttribute('href', `/login`)
-    await expect(page.locator('.header-cta')).toHaveAttribute('href', `/register`)
-    for (const action of await page.locator('.invitation-actions a').all()) {
-      await expect(action).toHaveAttribute('href', `/register`)
-    }
+    await expect(page.locator('.header-cta')).toHaveCount(0)
+    await expect(page.locator('.invitation-actions a')).toHaveCount(2)
+    await expect(page.locator('.invitation-actions a').first()).toHaveAttribute('href', `/register`)
+    await expect(page.locator('.invitation-actions a').last()).toHaveAttribute('href', `/login`)
+    await expect(page.getByText(copy.messages.landing.loginPrompt, { exact: false })).toBeVisible()
     await primary.focus()
     await page.keyboard.press('Enter')
     await expect(page).toHaveURL(new RegExp(`/register$`))
@@ -134,6 +161,76 @@ for (const copy of cases) {
     await page.goBack()
     await page.locator('.invitation-actions a').first().click()
     await expect(page).toHaveURL(new RegExp(`/register$`))
+    await page.goBack()
+    await page.locator('.invitation-actions a').last().click()
+    await expect(page).toHaveURL(new RegExp(`/login$`))
+    await expect(page.locator('.auth-form')).toBeVisible()
+  })
+
+  test(`${copy.locale}: the first screen gives keyboard and touch users a clear way in`, async ({ page, isMobile }, testInfo) => {
+    await visitLocale(page, '/', copy.locale)
+    const header = page.locator('header.site-header')
+    for (const target of [header.locator('.brand'), header.locator('.language-link'), header.locator('.auth-header-login'), ...await page.locator('.hero-actions a').all()]) {
+      await expectTouchTarget(target)
+    }
+    const navigation = header.locator('nav')
+    await expect(navigation).toHaveAttribute('aria-label', copy.messages.nav.main)
+    await expect(navigation.locator('a')).toHaveCount(4)
+    expect(await navigation.locator('a').evaluateAll(links => links.map(link => link.getAttribute('href')))).toEqual(['#about', '#gardens', '#how', '#questions'])
+    if (isMobile) {
+      const action = (await page.locator('.hero-actions a').first().boundingBox())!
+      expect(action.y).toBeGreaterThanOrEqual(0)
+      expect(action.y + action.height).toBeLessThanOrEqual(page.viewportSize()!.height)
+      await expect(navigation).toBeHidden()
+    } else {
+      await expect(navigation).toBeVisible()
+      await expect(navigation).toHaveAccessibleName(copy.messages.nav.main)
+      for (const link of await navigation.locator('a').all()) await expectTouchTarget(link)
+    }
+    await page.screenshot({ path: testInfo.outputPath('landing-first-screen.png'), animations: 'disabled' })
+
+    await page.keyboard.press('Tab')
+    const skip = page.locator('.skip-link')
+    await expect(skip).toBeFocused()
+    await expect(skip).toHaveAccessibleName(copy.messages.nav.skip)
+    const skipBox = (await skip.boundingBox())!
+    expect(skipBox.y).toBeGreaterThanOrEqual(0)
+    expect(skipBox.y + skipBox.height).toBeLessThanOrEqual(page.viewportSize()!.height)
+    await page.keyboard.press('Enter')
+    await expect(page).toHaveURL(/\/#main$/)
+    await expect(page.locator('#main')).toBeFocused()
+    const primary = page.locator('.hero-actions a').first()
+    await primary.focus()
+    await expect(primary).toHaveCSS('outline-style', 'solid')
+    expect(await primary.evaluate(element => Number.parseFloat(getComputedStyle(element).outlineWidth))).toBeGreaterThanOrEqual(2)
+    await page.keyboard.press('Enter')
+    await expect(page).toHaveURL(/\/register$/)
+  })
+
+  test(`${copy.locale}: content reflows at 320 pixels and the desktop 200 percent equivalent with reduced motion`, async ({ page, isMobile }, testInfo) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    // A 720 CSS px viewport matches the reflow space of the normal 1440 px desktop at 200% zoom.
+    for (const width of isMobile ? [320] : [720, 320]) {
+      await page.setViewportSize({ width, height: 844 })
+      await visitLocale(page, '/', copy.locale)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      await expect(page.locator('html')).toHaveCSS('scroll-behavior', 'auto')
+      for (const target of [page.locator('header .language-link'), page.locator('.auth-header-login'), ...await page.locator('.hero-actions a').all(), ...await page.locator('.invitation-actions a').all()]) {
+        await expectTouchTarget(target)
+        const box = (await target.boundingBox())!
+        expect(box.x).toBeGreaterThanOrEqual(0)
+        expect(box.x + box.width).toBeLessThanOrEqual(width)
+      }
+      for (const card of await page.locator('.garden-doors > article').all()) {
+        const box = (await card.boundingBox())!
+        expect(box.x).toBeGreaterThanOrEqual(0)
+        expect(box.x + box.width).toBeLessThanOrEqual(width)
+      }
+      await page.locator('#questions').scrollIntoViewIfNeeded()
+      for (const answer of await page.locator('.faq-list article p').all()) await expect(answer).toBeVisible()
+      expect(await page.locator('.landing').evaluate(element => element.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running').length)).toBe(0)
+      await page.screenshot({ path: testInfo.outputPath(`landing-reflow-${width}.png`), fullPage: true, animations: 'disabled' })
+    }
   })
 }
 
@@ -143,11 +240,11 @@ test.describe('server-rendered landing', () => {
   for (const copy of cases) {
     test(`${copy.locale}: all content and ordinary navigation work with JavaScript disabled`, async ({ page }, testInfo) => {
       await visitLocale(page, `/`, copy.locale)
-      await expect(page.getByRole('heading', { level: 1 })).toContainText(copy.title)
+      await expect(page.getByRole('heading', { level: 1 })).toContainText(copy.messages.hero.title)
       await expect(page.locator('.garden-doors article')).toHaveCount(4)
       await expect(page.locator('.faq-list article p')).toHaveCount(4)
       for (const answer of await page.locator('.faq-list article p').all()) await expect(answer).toBeVisible()
-      await expect(page.getByText(copy.answer, { exact: false })).toBeVisible()
+      await expect(page.getByText(copy.messages.faq.items[0]!.answer, { exact: true })).toBeVisible()
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       await page.screenshot({ path: testInfo.outputPath('landing-without-javascript.png'), fullPage: true })
       await page.locator('footer').scrollIntoViewIfNeeded()
@@ -174,6 +271,6 @@ for (const copy of cases) {
     expect(response?.status()).toBe(404)
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(copy.locale === 'ru' ? 'Эта тропинка никуда не ведёт' : 'This path leads nowhere')
     await page.getByRole('link', { name: copy.locale === 'ru' ? 'На главную' : 'Back to the garden', exact: true }).click()
-    await expect(page.getByRole('heading', { level: 1 })).toContainText(copy.title)
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(copy.messages.hero.title)
   })
 }

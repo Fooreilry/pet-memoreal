@@ -109,6 +109,11 @@ for (const locale of ['ru', 'en']) {
 
     await form.getByLabel(labels.name, { exact: true }).fill('An unsaved name')
     await page.getByTestId('memorial-edit-cancel').click()
+    await expect(page.getByTestId('unsaved-changes-dialog')).toBeVisible()
+    await page.getByTestId('unsaved-keep').click()
+    await expect(form.getByLabel(labels.name, { exact: true })).toHaveValue('An unsaved name')
+    await page.getByTestId('memorial-edit-back').click()
+    await page.getByTestId('unsaved-discard').click()
     await expect(page).toHaveURL(new URL(url, origin).href)
     await expect(page.getByRole('dialog')).toHaveAccessibleName('A familiar friend')
     expect(await members.stored(memorial.id)).toEqual(original)
@@ -127,6 +132,7 @@ for (const locale of ['ru', 'en']) {
     await form.getByLabel(labels.born, { exact: true }).fill('2010')
     await form.getByLabel(labels.died, { exact: true }).fill('2025')
     await form.getByLabel(labels.story, { exact: true }).fill(updatedStory)
+    await expect(form.getByTestId('memorial-story-count')).toContainText(String(updatedStory.length))
     const anonymous = form.getByRole('checkbox', { name: labels.anonymous, exact: true })
     await anonymous.click()
     await expect(anonymous).not.toBeChecked()
@@ -140,6 +146,9 @@ for (const locale of ['ru', 'en']) {
     await expect(anonymous).not.toBeChecked()
     expect(await members.stored(memorial.id)).toEqual(original)
     await page.screenshot({ path: testInfo.outputPath('memorial-edit-draft.png'), animations: 'disabled' })
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }))
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
+    await page.screenshot({ path: testInfo.outputPath('memorial-edit-page.png'), fullPage: true, animations: 'disabled' })
     await page.unroute(pattern)
     const [request] = await Promise.all([
       page.waitForRequest(request => new URL(request.url()).pathname === `/api/memorials/${memorial.id}` && request.method() === 'PATCH'),

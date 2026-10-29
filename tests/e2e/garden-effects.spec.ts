@@ -1,3 +1,4 @@
+import { openMemorialStory } from './helpers/memorial'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import sharp from 'sharp'
@@ -189,8 +190,7 @@ test('lake rain is visibly animated over the ground and respects reduced motion,
   await expect.poll(async () => Buffer.compare(zoomed, await sceneryFrame(page))).toBe(0)
   const stone = page.getByTestId('memorial-lake-1')
   await stone.focus()
-  if (isMobile) await stone.tap()
-  else await stone.click()
+  await openMemorialStory(page, stone, isMobile)
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(scene).toHaveAttribute('data-weather', 'rain')
   await page.keyboard.press('Escape')
@@ -233,8 +233,7 @@ test('light follows motion pause and the story dialog, while toggling it leaves 
   const stone = page.getByTestId('memorial-grove-1')
   await stone.focus()
   await expect(stone).toBeInViewport()
-  if (isMobile) await stone.tap()
-  else await stone.click()
+  await openMemorialStory(page, stone, isMobile)
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(scene).toHaveAttribute('data-effects', 'on')
   await expect(scene).toHaveAttribute('data-motion', 'paused')
@@ -288,8 +287,7 @@ for (const failure of ['reload', 'enable'] as const) {
     const stone = page.getByTestId('memorial-lake-1')
     await stone.focus()
     await expect(stone).toBeInViewport()
-    if (isMobile) await stone.tap()
-    else await stone.click()
+    await openMemorialStory(page, stone, isMobile)
     await expect(page.getByRole('dialog')).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog')).toHaveCount(0)

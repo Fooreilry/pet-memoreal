@@ -1,3 +1,4 @@
+import { openMemorialStory } from './helpers/memorial'
 import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
@@ -40,8 +41,7 @@ test('the detailed grove opens from its preview and every monument remains reach
     const stone = page.getByTestId(`memorial-grove-${place}`)
     await stone.focus()
     await expect(stone).toBeInViewport()
-    if (isMobile) await stone.tap()
-    else await stone.click()
+    await openMemorialStory(page, stone, isMobile)
     await expect(page.getByRole('dialog').locator('.memorial-location')).toContainText(`Место ${place}`)
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog')).toHaveCount(0)

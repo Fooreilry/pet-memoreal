@@ -34,6 +34,8 @@ async function cancel() {
     :summary-title="memorial?.name"
     :summary-detail="memorial ? `${memorial.born} — ${memorial.died}` : undefined"
     :summary-note="t('editing.placeNote')"
+    :garden-id="memorial?.gardenId"
+    :species="memorial?.species"
     :show-state="status === 'pending' || !!error || !memorial"
   >
     <template #state>

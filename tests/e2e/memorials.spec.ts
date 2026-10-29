@@ -1,4 +1,5 @@
 import { visitLocale } from './helpers/locale'
+import { openMemorialStory } from './helpers/memorial'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import pg from 'pg'
@@ -53,7 +54,65 @@ async function revealPlace(page: Page, place: Locator) {
   await expect(place).toBeInViewport()
 }
 
+async function captureFullPage(page: Page, path: string) {
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }))
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
+  await page.screenshot({ path, fullPage: true, animations: 'disabled' })
+}
+
 for (const locale of ['ru', 'en']) {
+  test(`${locale}: the creation form has a keyboard garden picker, readable story space and protects a draft`, async ({ page, members }, testInfo) => {
+    const ru = locale === 'ru'
+    await signIn(page.request, members.owner)
+    await visitLocale(page, '/memorials/new', locale)
+    const form = page.getByTestId('memorial-create-form')
+    await expect(form).toHaveAttribute('novalidate', '')
+    await expect(form.getByRole('group', { name: ru ? 'О питомце' : 'About your pet', exact: true })).toBeVisible()
+    const garden = form.getByTestId('memorial-garden')
+    await expect(garden).toHaveAttribute('aria-required', 'true')
+    await expect(garden).toContainText(ru ? 'Луг' : 'Meadow')
+    await garden.focus()
+    await page.keyboard.press('ArrowDown')
+    const options = page.getByRole('listbox')
+    await expect(options.getByRole('option')).toHaveCount(4)
+    // Measure final geometry after the primitive's opening transition and entry focus.
+    await expect.poll(async () => {
+      const trigger = (await garden.boundingBox())!
+      const popup = (await options.boundingBox())!
+      return Math.max(Math.abs(popup.width - trigger.width), Math.abs(popup.x - trigger.x))
+    }).toBeLessThanOrEqual(1)
+    await expect(options.getByRole('option', { name: ru ? 'Луг' : 'Meadow', exact: true })).toBeFocused()
+    await page.keyboard.press('End')
+    await expect(options.getByRole('option', { name: ru ? 'Холм' : 'Hill', exact: true })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(options).toHaveCount(0)
+    await expect(garden).toContainText(ru ? 'Холм' : 'Hill')
+    await expect(garden).toBeFocused()
+
+    const name = form.getByLabel(ru ? 'Имя питомца' : 'Pet’s name', { exact: true })
+    const story = form.getByLabel(ru ? 'История питомца' : 'Your pet’s story', { exact: true })
+    await name.fill(ru ? 'Солнечный друг' : 'Sunny friend')
+    const storyText = (ru ? 'Мы любили гулять у воды. Он всегда находил солнечное место рядом.\n\n' : 'We loved walking by the water. They always found a sunny place beside us.\n\n').repeat(20).trim()
+    const before = (await story.boundingBox())!.height
+    await story.fill(storyText)
+    await expect(form.getByTestId('memorial-story-count')).toContainText(new Intl.NumberFormat(locale).format(storyText.length))
+    await expect(story).toHaveCSS('resize', 'none')
+    await expect.poll(async () => (await story.boundingBox())!.height).toBeGreaterThan(before)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await captureFullPage(page, testInfo.outputPath('memorial-long-story.png'))
+
+    await page.getByTestId('memorial-create-back').click()
+    const warning = page.getByTestId('unsaved-changes-dialog')
+    await expect(warning).toBeVisible()
+    await page.getByTestId('unsaved-keep').click()
+    await expect(story).toHaveValue(storyText)
+    await expect(garden).toContainText(ru ? 'Холм' : 'Hill')
+    expect(await (await page.request.get('/api/memorials/mine')).json()).toEqual([])
+    await page.getByTestId('memorial-create-back').click()
+    await page.getByTestId('unsaved-discard').click()
+    await expect(page).toHaveURL(new URL('/gardens', origin).href)
+  })
+
   test(`${locale}: create in a chosen garden place, reload it, find it in the account and visit as a guest`, async ({ page, members, browser, isMobile }, testInfo) => {
     const ru = locale === 'ru'
     const place = ru ? 3 : 4
@@ -111,6 +170,7 @@ for (const locale of ['ru', 'en']) {
     await story.fill('Тёплая память.\n<script>window.memorialXss=true</script>')
     await submit.click()
     const species = page.getByTestId('memorial-species')
+    await expect(species).toHaveAttribute('aria-required', 'true')
     await expect(species).toHaveAttribute('aria-invalid', 'true')
     await expect(page.getByText(ru ? 'Выберите вид животного.' : 'Please choose an animal type.', { exact: true })).toBeVisible()
     await species.click()
@@ -120,6 +180,12 @@ for (const locale of ['ru', 'en']) {
     await page.screenshot({ path: testInfo.outputPath('animal-listbox.png'), animations: 'disabled' })
     await page.getByPlaceholder(ru ? 'Найти животное' : 'Find an animal', { exact: true }).fill('zzzz-no-animal')
     await expect(page.getByText(ru ? 'Ничего не найдено. Попробуйте другое название.' : 'No animals found. Try another name.', { exact: true })).toBeVisible()
+    await page.keyboard.press('Tab')
+    await expect(page.getByTestId('memorial-species-clear')).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page.getByPlaceholder(ru ? 'Найти животное' : 'Find an animal', { exact: true })).toBeFocused()
+    await expect(listbox.getByRole('option')).toHaveCount(petSpecies.length)
+    await expect(page.getByTestId('memorial-species-clear')).toHaveCount(0)
     await page.keyboard.press('Escape')
     await choosePetSpecies(page, locale, ru ? 'Аксолотль' : 'Cat', !isMobile)
     await submit.click()
@@ -138,14 +204,28 @@ for (const locale of ['ru', 'en']) {
     await expect(species).toContainText(ru ? 'Аксолотль' : 'Cat')
     await expect(story).toHaveValue('Тёплая память.\n<script>window.memorialXss=true</script>')
     await page.unroute('**/api/memorials')
-    await page.screenshot({ path: testInfo.outputPath('memorial-form.png'), fullPage: true, animations: 'disabled' })
-    const [saveRequest] = await Promise.all([
-      page.waitForRequest(request => new URL(request.url()).pathname === '/api/memorials' && request.method() === 'POST'),
-      submit.click()
-    ])
+    await captureFullPage(page, testInfo.outputPath('memorial-form.png'))
+    const idleSubmit = (await submit.boundingBox())!
+    let releaseSave: () => void = () => {}
+    const heldSave = new Promise<void>((resolve) => { releaseSave = resolve })
+    await page.route('**/api/memorials', async (route) => { await heldSave; await route.continue() })
+    const savedRequest = page.waitForRequest(request => new URL(request.url()).pathname === '/api/memorials' && request.method() === 'POST')
+    try {
+      await submit.click()
+      await expect(submit).toBeDisabled()
+      const pendingSubmit = (await submit.boundingBox())!
+      for (const dimension of ['x', 'width', 'height'] as const) expect(Math.abs(pendingSubmit[dimension] - idleSubmit[dimension])).toBeLessThanOrEqual(1)
+      await page.getByTestId('garden-home').click()
+      await expect(page.getByTestId('unsaved-changes-dialog')).toBeVisible()
+      await expect(page.getByTestId('unsaved-discard')).toHaveCount(0)
+      await expect(page.getByTestId('unsaved-keep')).toBeFocused()
+    } finally { releaseSave() }
+    const saveRequest = await savedRequest
     expect(saveRequest.postDataJSON().requestId).toBe(failedRequest.postDataJSON().requestId)
     expect(saveRequest.postDataJSON().species).toBe(ru ? 'axolotl' : 'cat')
     await expect(page).toHaveURL(new RegExp(`/gardens\\?garden=lake&memorial=`))
+    await expect(page.getByTestId('unsaved-changes-dialog')).toHaveCount(0)
+    await page.unroute('**/api/memorials')
     const id = new URL(page.url()).searchParams.get('memorial')!
     const dialog = page.getByRole('dialog')
     await expect(dialog).toHaveAccessibleName('Мой друг <Milo>')
@@ -168,8 +248,7 @@ for (const locale of ['ru', 'en']) {
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
     if (isMobile) {
-      await page.locator('.canvas-wrapper').focus()
-      await page.getByTestId(`memorial-${id}`).focus()
+      await page.getByTestId(`memorial-${id}`).tap()
     } else {
       await page.mouse.move(0, 0)
       await page.getByTestId(`memorial-${id}`).hover()
@@ -268,6 +347,96 @@ for (const locale of ['ru', 'en']) {
   })
 }
 
+test('signing out protects a memorial draft before invalidating the session', async ({ page, members, isMobile }) => {
+  await signIn(page.request, members.owner)
+  await visitLocale(page, '/memorials/new', 'en')
+  const form = page.getByTestId('memorial-create-form')
+  const name = form.getByLabel('Pet’s name', { exact: true })
+  const story = form.getByLabel('Your pet’s story', { exact: true })
+  await name.fill('A memory still being written')
+  await story.fill('This draft must remain here if I decide to keep editing.')
+  let signOutRequests = 0
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/api/auth/sign-out' && request.method() === 'POST') signOutRequests++
+  })
+  async function signOutFromHeader() {
+    const action = page.getByRole('menuitem', { name: 'Sign out', exact: true })
+    if (!await action.isVisible()) {
+      if (isMobile) await page.getByTestId('garden-account-menu').tap()
+      else await page.getByTestId('garden-account-menu').click()
+    }
+    if (isMobile) await action.tap()
+    else await action.click()
+    await expect(page.getByTestId('unsaved-changes-dialog')).toBeVisible()
+  }
+
+  // Cancelled navigation must return keyboard focus to an existing header control,
+  // even though opening the warning removes the original profile menu item.
+  const profile = page.getByRole('menuitem', { name: 'Profile', exact: true })
+  if (isMobile) {
+    await page.getByTestId('garden-account-menu').tap()
+    await profile.tap()
+  } else {
+    await page.getByTestId('garden-account-menu').click()
+    await profile.click()
+  }
+  await expect(page.getByTestId('unsaved-changes-dialog')).toBeVisible()
+  await page.getByTestId('unsaved-keep').click()
+  await expect(page.getByTestId('unsaved-changes-dialog')).toHaveCount(0)
+  await expect(page.getByTestId('garden-account-menu')).toBeFocused()
+  await expect(name).toHaveValue('A memory still being written')
+  await expect(story).toHaveValue('This draft must remain here if I decide to keep editing.')
+  expect((await page.request.get('/api/me')).status()).toBe(200)
+
+  await signOutFromHeader()
+  await page.getByTestId('unsaved-keep').click()
+  await expect(page.getByTestId('garden-account-menu')).toBeEnabled()
+  expect(signOutRequests).toBe(0)
+  expect((await page.request.get('/api/me')).status()).toBe(200)
+  await expect(story).toHaveValue('This draft must remain here if I decide to keep editing.')
+
+  await page.route('**/api/auth/sign-out', route => route.fulfill({ status: 503, json: { message: 'Unavailable' } }))
+  await signOutFromHeader()
+  await page.getByTestId('unsaved-discard').click()
+  await expect(page.getByText('We could not complete your request. Please try again shortly.', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('sign-out-pending')).toHaveCount(0)
+  expect(signOutRequests).toBe(1)
+  expect((await page.request.get('/api/me')).status()).toBe(200)
+  await expect(name).toHaveValue('A memory still being written')
+  // A failed sign-out must not grant a lasting bypass for the unsaved form.
+  await page.getByTestId('memorial-create-back').click()
+  await expect(page.getByTestId('unsaved-changes-dialog')).toBeVisible()
+  await page.getByTestId('unsaved-keep').click()
+  await expect(page).toHaveURL(new URL('/memorials/new', origin).href)
+  await page.unroute('**/api/auth/sign-out')
+
+  let releaseSignOut: () => void = () => {}
+  const heldSignOut = new Promise<void>((resolve) => { releaseSignOut = resolve })
+  await page.route('**/api/auth/sign-out', async (route) => { await heldSignOut; await route.continue() })
+  try {
+    await signOutFromHeader()
+    await page.getByTestId('unsaved-discard').click()
+    const pending = page.getByTestId('sign-out-pending')
+    await expect(pending).toBeVisible()
+    await expect(pending).toHaveAttribute('aria-busy', 'true')
+    await expect(pending).toHaveAccessibleName('Signing out')
+    await expect(pending.getByRole('button')).toHaveCount(0)
+    await expect.poll(() => form.evaluate((element) => {
+      for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
+        if (ancestor.hasAttribute('inert') || ancestor.getAttribute('aria-hidden') === 'true') return true
+      }
+      return false
+    })).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(pending).toBeVisible()
+  } finally { releaseSignOut() }
+  await expect(page).toHaveURL(new URL('/', origin).href)
+  await expect(page.locator('.landing')).toBeVisible()
+  await expect(page.getByTestId('sign-out-pending')).toHaveCount(0)
+  expect(signOutRequests).toBe(2)
+  expect((await page.request.get('/api/me')).status()).toBe(401)
+})
+
 base('the anonymity migration preserves old records without changing the default for new memorials', async ({ baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'Migration behavior does not depend on viewport')
   const database = process.env.E2E_DATABASE
@@ -339,12 +508,13 @@ test('a place taken while the creation page is open keeps the draft and returns 
     await expect(form.getByLabel('Your pet’s story', { exact: true })).toHaveValue('A memory that must not disappear.')
     expect(await (await page.request.get('/api/memorials/mine')).json()).toEqual([])
     await page.getByTestId('memorial-create-conflict-back').click()
+    await page.getByTestId('unsaved-discard').click()
     await expect(page).toHaveURL(new URL('/gardens?garden=grove', origin).href)
     await expect(form).toHaveCount(0)
     await expect(page.getByTestId('empty-grove-3')).toHaveCount(0)
     const stone = page.getByTestId(`memorial-${record.id}`)
     await revealPlace(page, stone)
-    await stone.click()
+    await openMemorialStory(page, stone)
     await expect(page.getByRole('dialog')).toHaveAccessibleName('Another friend')
   } finally { await other.close() }
 })
@@ -367,6 +537,11 @@ test('the creation page retries availability, returns without saving and handles
   await expect(form).toBeVisible()
   await form.getByLabel('Pet’s name', { exact: true }).fill('A draft that was never saved')
   await page.getByTestId('memorial-create-back').click()
+  await expect(page.getByTestId('unsaved-changes-dialog')).toBeVisible()
+  await page.getByTestId('unsaved-keep').click()
+  await expect(form.getByLabel('Pet’s name', { exact: true })).toHaveValue('A draft that was never saved')
+  await page.getByTestId('memorial-create-back').click()
+  await page.getByTestId('unsaved-discard').click()
   await expect(page).toHaveURL(new URL('/gardens?garden=grove', origin).href)
   expect(await (await page.request.get('/api/memorials/mine')).json()).toEqual([])
 

@@ -14,7 +14,7 @@ const model = defineModel<string>({ required: true })
 
 <template>
   <UFormField :name="name" :label="label" :help="help" :required="required">
-    <UTextarea v-if="multiline" v-model="model" :name="name" :placeholder="placeholder" :maxlength="maxlength" :aria-required="required" :disabled="disabled" :rows="4" class="w-full" />
+    <UTextarea v-if="multiline" v-model="model" :name="name" :placeholder="placeholder" :maxlength="maxlength" :aria-required="required" :disabled="disabled" :rows="5" :maxrows="16" autoresize :ui="{ base: 'resize-none' }" class="w-full" />
     <UInput v-else v-model="model" :name="name" :placeholder="placeholder" :maxlength="maxlength" :aria-required="required" :disabled="disabled" class="w-full" />
   </UFormField>
 </template>

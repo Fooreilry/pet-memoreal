@@ -9,6 +9,7 @@ const { t, locale } = useI18n()
 const route = useRoute()
 const localePath = useLocalePath()
 const selected = computed(() => findDemoGarden(route.query.garden))
+const { fullscreen, toggleFullscreen } = useGardenFullscreen()
 const { seed: authSessionSeed } = useGardenSession()
 const gardenMenuOpen = ref(false)
 const sceneReady = ref(false)
@@ -42,17 +43,18 @@ watch([() => selected.value?.id, sceneReady], async () => {
   await nextTick()
   heading.value?.focus({ preventScroll: true })
 })
+watch(() => selected.value?.id, (id) => { if (!id) fullscreen.value = false })
 </script>
 
 <template>
-  <div class="gardens-page">
+  <div class="gardens-page" :class="{ 'gardens-page-expanded': fullscreen }" :data-expanded="fullscreen">
     <a href="#garden-main" class="skip-link">{{ t('nav.skip') }}</a>
-    <GardenHeader />
+    <GardenHeader v-show="!fullscreen" />
     <main id="garden-main" class="garden-stage">
       <h1 v-if="!selected || !sceneReady" ref="heading" class="sr-only" tabindex="-1">{{ title }}</h1>
       <div class="garden-canvas-area">
         <ClientOnly>
-          <GardenCanvas :garden-id="selected?.id" :memorials="records" :places-state="placesState" :focus-id="focusId" :can-create="status === 'success' && !loadError" @select="selectGarden" @create="createAt" @ready="sceneReady = $event" @retry="reload()" />
+          <GardenCanvas :garden-id="selected?.id" :memorials="records" :places-state="placesState" :focus-id="focusId" :can-create="status === 'success' && !loadError" :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" @select="selectGarden" @create="createAt" @ready="sceneReady = $event" @retry="reload()" />
           <template #fallback><div class="garden-fallback"><GardenLoading :completed="0" phase="opening" /></div></template>
         </ClientOnly>
       </div>
@@ -86,6 +88,7 @@ watch([() => selected.value?.id, sceneReady], async () => {
 <style scoped>
 .gardens-page { position: relative; display: flex; flex-direction: column; width: 100%; height: 100dvh; overflow: clip; background: var(--garden-cream); }
 .garden-stage { position: relative; flex: 1; min-height: 0; margin: 0 20px calc(20px + env(safe-area-inset-bottom)); border-radius: 28px; overflow: clip; background: #193c37; box-shadow: 0 0 0 1px #244b3b1a; }
+.gardens-page-expanded .garden-stage { margin: 0; border-radius: 0; box-shadow: none; }
 .garden-canvas-area { position: absolute; inset: 0; }
 .garden-hud { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .garden-control { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-width: 48px; min-height: 48px; padding: 10px 18px; border: 1px solid #e4dcc33d; border-radius: var(--control-radius); color: #f8f3e8; background: #173d34ed; box-shadow: 0 8px 28px #0c282b35; backdrop-filter: blur(16px); pointer-events: auto; cursor: pointer; }

@@ -1,46 +1,23 @@
 export function useGardenFullscreen() {
-  const { t } = useI18n()
-  const toast = useToast()
+  // Expand only the map inside the browser's content viewport.
   const fullscreen = ref(false)
-  const supported = ref(false)
-  const busy = ref(false)
-  let owned = false
-  let disposed = false
 
-  function changed() {
-    fullscreen.value = !!document.fullscreenElement
-    if (!fullscreen.value) owned = false
+  function toggleFullscreen() {
+    fullscreen.value = !fullscreen.value
   }
 
-  async function toggleFullscreen() {
-    if (!supported.value || busy.value) return
-    busy.value = true
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen()
-      else {
-        // Include body portals so forms, stories and menus remain visible.
-        owned = true
-        await document.documentElement.requestFullscreen()
-        if (disposed && owned && document.fullscreenElement === document.documentElement) await document.exitFullscreen()
-      }
-    } catch {
-      owned = false
-      if (!disposed) toast.add({ title: t('garden.camera.fullscreenError'), color: 'error' })
-    } finally {
-      busy.value = false
-    }
+  function escape(event: KeyboardEvent) {
+    if (event.key !== 'Escape' || event.repeat || event.defaultPrevented || !fullscreen.value) return
+    // Portaled stories and popovers receive the first Escape. Inspect them before
+    // their own handlers close the layer; a subsequent Escape restores the map.
+    if (document.querySelector('[role="dialog"][data-state="open"], [role="menu"][data-state="open"], [role="listbox"][data-state="open"], [data-memorial-preview][data-state="open"]')) return
+    event.preventDefault()
+    fullscreen.value = false
+    nextTick(() => document.querySelector<HTMLButtonElement>('[data-testid="garden-fullscreen"]')?.focus({ preventScroll: true }))
   }
 
-  onMounted(() => {
-    supported.value = document.fullscreenEnabled && typeof document.documentElement.requestFullscreen === 'function'
-    changed()
-    document.addEventListener('fullscreenchange', changed)
-  })
-  onBeforeUnmount(() => {
-    disposed = true
-    document.removeEventListener('fullscreenchange', changed)
-    if (owned && document.fullscreenElement === document.documentElement) void document.exitFullscreen().catch(() => {})
-  })
+  onMounted(() => window.addEventListener('keydown', escape, true))
+  onBeforeUnmount(() => window.removeEventListener('keydown', escape, true))
 
-  return { fullscreen, supported, busy, toggleFullscreen }
+  return { fullscreen, toggleFullscreen }
 }

@@ -1,3 +1,4 @@
+import { openMemorialStory } from './helpers/memorial'
 import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
@@ -40,15 +41,22 @@ test('the flowering meadow opens from the overview and its plants leave all memo
   await page.getByTestId('garden-zoom-in').click()
   await expect(scene).toHaveAttribute('data-zoom', '1.250')
   await scene.focus()
-  const previousX = Number(await scene.getAttribute('data-camera-x'))
-  await page.keyboard.press('ArrowRight')
-  expect(Number(await scene.getAttribute('data-camera-x'))).toBeLessThan(previousX)
+  const overflow = await scene.evaluate((element) => {
+    const view = element as HTMLElement
+    const bounds = view.getBoundingClientRect()
+    const scale = Number(view.dataset.projectionScale) * Number(view.dataset.zoom)
+    return { x: Number(view.dataset.worldWidth) * scale > bounds.width + 1, y: Number(view.dataset.worldHeight) * scale > bounds.height + 1 }
+  })
+  expect(overflow.x || overflow.y).toBe(true)
+  const axis = overflow.x ? 'x' : 'y'
+  const previous = Number(await scene.getAttribute(`data-camera-${axis}`))
+  await page.keyboard.press(overflow.x ? 'ArrowRight' : 'ArrowDown')
+  expect(Number(await scene.getAttribute(`data-camera-${axis}`))).toBeLessThan(previous)
   for (const place of [1, 2, 6, 12]) {
     const stone = page.getByTestId(`memorial-meadow-${place}`)
     await stone.focus()
     await expect(stone).toBeInViewport()
-    if (isMobile) await stone.tap()
-    else await stone.click()
+    await openMemorialStory(page, stone, isMobile)
     await expect(page.getByRole('dialog').locator('.memorial-location')).toContainText(`Место ${place}`)
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -69,8 +77,7 @@ test('the flowering meadow opens from the overview and its plants leave all memo
     const stone = page.getByTestId(`memorial-lake-${place}`)
     await stone.focus()
     await expect(stone).toBeInViewport()
-    if (isMobile) await stone.tap()
-    else await stone.click()
+    await openMemorialStory(page, stone, isMobile)
     await expect(page.getByRole('dialog').locator('.memorial-location')).toContainText(`Место ${place}`)
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -79,7 +86,7 @@ test('the flowering meadow opens from the overview and its plants leave all memo
   expect(errors).toEqual([])
 })
 
-test('meadow insects obey pause and reduced motion while rotation and a free place remain usable', async ({ page }, testInfo) => {
+test('meadow insects obey pause and reduced motion while rotation and a free place remain usable', async ({ page, isMobile }, testInfo) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   await page.emulateMedia({ reducedMotion: 'no-preference' })
@@ -96,7 +103,7 @@ test('meadow insects obey pause and reduced motion while rotation and a free pla
   const first = page.getByTestId('memorial-meadow-1')
   await first.focus()
   await expect(first).toBeInViewport()
-  await first.click()
+  await openMemorialStory(page, first, isMobile)
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(scene).toHaveAttribute('data-motion', 'paused')
   await page.keyboard.press('Escape')

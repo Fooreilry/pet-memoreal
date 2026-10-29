@@ -5,6 +5,7 @@ import { expect, test as base } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { getDatabaseOptions } from '../../server/db/config'
 import { visitLocale } from './helpers/locale'
+import { openMemorialStory } from './helpers/memorial'
 import { waitForSignInRetry } from './helpers/sign-in'
 
 const origin = 'http://127.0.0.1:4173'
@@ -130,7 +131,7 @@ test('successful sign-out and sign-in renew scenery across open tabs while a sav
     await otherTab.reload()
     expect(await snapshot(otherTab)).toEqual(second)
     expect(await saved.evaluate(element => element.closest<HTMLElement>('.memorial-position')?.dataset.chunkId)).toBe(originalChunk)
-    await saved.click()
+    await openMemorialStory(page, saved)
     await expect(page.getByRole('dialog')).toHaveAccessibleName('A familiar friend')
     await page.keyboard.press('Escape')
     await page.reload()

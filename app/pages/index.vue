@@ -6,7 +6,6 @@ definePageMeta({ middleware: 'landing', colorMode: 'light' })
 const { t, locale } = useI18n()
 const localePath = useLocalePath()
 const showBackToTop = ref(false)
-const gardenIcons = ['i-lucide-flower-2', 'i-lucide-waves', 'i-lucide-trees', 'i-lucide-mountain']
 
 function syncBackToTop() {
   showBackToTop.value = window.scrollY > 0
@@ -34,21 +33,20 @@ useSeoMeta({ title: () => t('meta.title'), description: () => t('meta.descriptio
         <span class="brand-mark"><UIcon name="i-lucide-sprout" aria-hidden="true" /></span>
         <span>PetMemoreal</span>
       </NuxtLink>
-      <nav class="desktop-nav" :aria-label="t('nav.about')">
+      <nav class="desktop-nav" :aria-label="t('nav.main')">
         <a href="#about">{{ t('nav.about') }}</a>
-        <NuxtLink :to="localePath('/login')" no-prefetch>{{ t('hero.secondary') }}</NuxtLink>
+        <a href="#gardens">{{ t('nav.gardens') }}</a>
         <a href="#how">{{ t('nav.how') }}</a>
         <a href="#questions">{{ t('nav.questions') }}</a>
       </nav>
       <div class="header-actions">
         <LanguageSwitch />
-        <NuxtLink :to="localePath('/login')" no-prefetch class="auth-header-login">{{ t('auth.actions.login') }}</NuxtLink>
-        <NuxtLink :to="localePath('/register')" no-prefetch class="landing-button header-cta">{{ t('auth.createAccount') }}<UIcon name="i-lucide-arrow-up-right" aria-hidden="true" /></NuxtLink>
+        <NuxtLink :to="localePath('/login')" no-prefetch class="auth-header-login">{{ t('auth.actions.login') }}<UIcon name="i-lucide-arrow-up-right" aria-hidden="true" /></NuxtLink>
       </div>
       </header>
     </div>
 
-    <main id="main">
+    <main id="main" tabindex="-1">
       <section class="hero-section" aria-labelledby="hero-title">
         <img class="hero-background" src="/images/34a7d373-ee89-4a01-a2e3-7fc7b31039c3.jpg" alt="" width="1024" height="572" fetchpriority="high">
         <div class="hero shell">
@@ -60,6 +58,7 @@ useSeoMeta({ title: () => t('meta.title'), description: () => t('meta.descriptio
             <NuxtLink :to="localePath('/register')" no-prefetch class="landing-button">{{ t('hero.primary') }}<UIcon name="i-lucide-arrow-up-right" aria-hidden="true" /></NuxtLink>
             <NuxtLink :to="localePath('/login')" no-prefetch class="text-link">{{ t('hero.secondary') }}<UIcon name="i-lucide-arrow-up-right" aria-hidden="true" /></NuxtLink>
           </div>
+          <p class="hero-action-hint">{{ t('landing.heroActionHint') }}</p>
           <p class="launch-note"><UIcon name="i-lucide-sprout" aria-hidden="true" />{{ t('landing.heroNote') }}</p>
         </div>
         </div>
@@ -80,11 +79,8 @@ useSeoMeta({ title: () => t('meta.title'), description: () => t('meta.descriptio
           <p>{{ t('landing.discoverDescription') }}</p>
         </div>
         <div class="garden-doors">
-          <article v-for="(garden, index) in demoGardens" :key="garden.id" class="garden-door" :class="`door-theme-${garden.id}`" :data-testid="`discover-${garden.id}`">
-            <div class="door-landscape" aria-hidden="true">
-              <span class="door-orbit" /><span class="door-sun" /><span class="door-hill door-hill-back" /><span class="door-hill door-hill-front" />
-              <UIcon :name="gardenIcons[index]!" /><span class="door-number">0{{ index + 1 }}</span>
-            </div>
+          <article v-for="garden in demoGardens" :key="garden.id" class="garden-door" :class="`door-theme-${garden.id}`" :data-testid="`discover-${garden.id}`">
+            <div class="door-landscape"><LandingGardenScene :garden="garden.id" /></div>
             <div class="door-caption"><div><h3>{{ t(`garden.names.${garden.id}`) }}</h3><p>{{ t(`landing.gardens.${garden.id}`) }}</p></div></div>
           </article>
         </div>
@@ -107,11 +103,9 @@ useSeoMeta({ title: () => t('meta.title'), description: () => t('meta.descriptio
 
       <section class="values-section" aria-labelledby="values-title">
         <div class="shell values-message">
-          <div class="values-mark" aria-hidden="true"><UIcon name="i-lucide-sprout" /></div>
           <p class="eyebrow">{{ t('values.label') }}</p>
           <h2 id="values-title">{{ t('values.title') }}</h2>
-          <p class="values-description">{{ t('landing.valuesDescription') }}</p>
-          <p class="values-aside">{{ t('landing.valuesAside') }}</p>
+          <div class="values-copy"><p class="values-description">{{ t('landing.valuesDescription') }}</p><p class="values-aside">{{ t('landing.valuesAside') }}</p></div>
         </div>
       </section>
 
@@ -120,19 +114,20 @@ useSeoMeta({ title: () => t('meta.title'), description: () => t('meta.descriptio
         <div class="faq-list"><article v-for="index in 4" :key="index"><h3>{{ t(`faq.items.${index - 1}.question`) }}</h3><p>{{ t(`faq.items.${index - 1}.answer`) }}</p></article></div>
       </section>
       <section class="invitation shell" aria-labelledby="invitation-title">
-        <UIcon name="i-lucide-sprout" class="invitation-sprout" aria-hidden="true" />
-        <p class="eyebrow">{{ t('landing.invitationLabel') }}</p>
-        <h2 id="invitation-title">{{ t('landing.invitationTitle') }}</h2>
-        <p>{{ t('landing.invitationDescription') }}</p>
+        <div class="invitation-copy">
+          <p class="eyebrow">{{ t('landing.invitationLabel') }}</p>
+          <h2 id="invitation-title">{{ t('landing.invitationTitle') }}</h2>
+          <p>{{ t('landing.invitationDescription') }}</p>
+        </div>
         <div class="invitation-actions">
           <NuxtLink :to="localePath('/register')" no-prefetch class="landing-button invitation-primary">{{ t('hero.primary') }}<UIcon name="i-lucide-arrow-up-right" aria-hidden="true" /></NuxtLink>
-          <NuxtLink :to="localePath('/register')" no-prefetch class="text-link">{{ t('auth.createAccount') }}<UIcon name="i-lucide-arrow-right" aria-hidden="true" /></NuxtLink>
+          <p class="invitation-login">{{ t('landing.loginPrompt') }} <NuxtLink :to="localePath('/login')" no-prefetch class="text-link">{{ t('auth.actions.login') }}<UIcon name="i-lucide-arrow-right" aria-hidden="true" /></NuxtLink></p>
+          <span class="invitation-note">{{ t('landing.invitationNote') }}</span>
         </div>
-        <span class="invitation-note">{{ t('landing.invitationNote') }}</span>
       </section>
     </main>
 
-    <footer class="site-footer shell"><div><NuxtLink :to="localePath('/')" class="brand"><UIcon name="i-lucide-sprout" aria-hidden="true" />PetMemoreal</NuxtLink><p>{{ t('footer.line') }}</p></div><span>{{ t('footer.status') }}</span></footer>
+    <footer class="site-footer shell"><NuxtLink :to="localePath('/')" class="brand"><UIcon name="i-lucide-sprout" aria-hidden="true" />PetMemoreal</NuxtLink><p>{{ t('footer.line') }}</p></footer>
     <a v-show="showBackToTop" href="#top" class="back-to-top" :aria-label="t('footer.top')" data-testid="back-to-top"><UIcon name="i-lucide-arrow-up" aria-hidden="true" /><span>{{ t('footer.top') }}</span></a>
   </div>
 </template>

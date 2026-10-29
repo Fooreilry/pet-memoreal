@@ -1,3 +1,4 @@
+import { openMemorialStory } from './helpers/memorial'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { visitLocale } from './helpers/locale'
@@ -65,8 +66,7 @@ for (const garden of gardens) {
     const first = page.getByTestId(`memorial-${garden.id}-1`)
     await first.focus()
     await expect(first).toBeInViewport()
-    if (isMobile) await first.tap()
-    else await first.click()
+    await openMemorialStory(page, first, isMobile)
     await expect(page.getByRole('dialog').locator('.memorial-location')).toContainText('Place 1')
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -78,6 +78,8 @@ for (const garden of gardens) {
     const last = page.getByTestId(`memorial-${garden.id}-${garden.places}`)
     await last.focus()
     await expect(last).toBeInViewport()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('memorial-summary')).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('dialog').locator('.memorial-location')).toContainText(`Place ${garden.places}`)
     await page.keyboard.press('Escape')

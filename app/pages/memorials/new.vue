@@ -44,6 +44,7 @@ async function cancel() { await navigateTo(gardenDestination) }
     :summary-title="place ? t(`garden.names.${gardenId}`) : t('creation.page.summaryTitle')"
     :summary-detail="place ? t('account.place', { place }) : undefined"
     :summary-note="t('creation.page.placeNote')"
+    :garden-id="gardenId"
     :show-state="invalidLocation || status === 'pending' || !!error || !!occupied"
   >
     <template #state>

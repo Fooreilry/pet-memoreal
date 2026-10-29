@@ -15,43 +15,133 @@ const selected = shallowRef<GardenMemorial>()
 const open = ref(false)
 const previewId = ref<string>()
 const suppressedPreview = ref<string>()
+let previewMode: 'hover' | 'pinned' | 'keyboard' | undefined
+let hoverTimer: ReturnType<typeof setTimeout> | undefined
+let closeTimer: ReturnType<typeof setTimeout> | undefined
 let trigger: HTMLButtonElement | undefined
-watch(open, value => {
+let activation: { memorial: GardenMemorial, keyboard: boolean, trigger: HTMLButtonElement } | undefined
+
+function stoneElement(id: string) {
+  return document.querySelector<HTMLButtonElement>(`[data-testid="memorial-${id}"]`)
+}
+
+function clearPreviewTimers() {
+  clearTimeout(hoverTimer)
+  clearTimeout(closeTimer)
+}
+
+function closePreview(suppress = false) {
+  clearPreviewTimers()
+  if (suppress && previewId.value) suppressedPreview.value = previewId.value
   previewId.value = undefined
+  previewMode = undefined
+}
+
+watch(open, value => {
+  closePreview()
   suppressedPreview.value = selected.value?.id
   emit('modal', value)
 }, { flush: 'sync' })
-watch(() => props.interacting, value => { if (value) previewId.value = undefined })
+watch(() => props.interacting, value => { if (value) closePreview(true) }, { flush: 'sync' })
 watch(layout, value => {
+  if (previewId.value && !value.places.some(place => place.memorial?.id === previewId.value)) closePreview()
   if (selected.value?.source !== 'saved') return
   const current = value.places.find(place => place.memorial?.id === selected.value?.id)?.memorial
   if (current?.source === 'saved') selected.value = current
   else { open.value = false; selected.value = undefined }
 })
 
-function show(memorial: GardenMemorial, event: MouseEvent) {
-  trigger = event.currentTarget as HTMLButtonElement
+function show(memorial: GardenMemorial) {
+  if (props.interacting) return
+  trigger = stoneElement(memorial.id) ?? undefined
   selected.value = memorial
   open.value = true
 }
 
-function togglePreview(id: string, value: boolean) {
-  if (!value) {
-    if (previewId.value === id) previewId.value = undefined
-  } else if (!open.value && !props.interacting && suppressedPreview.value !== id) previewId.value = id
+function prepareActivation(memorial: GardenMemorial, event: MouseEvent) {
+  // Keep the native popover trigger (and its generated ARIA relationships),
+  // while distinguishing an intentional activation from outside dismissal.
+  activation = { memorial, keyboard: event.detail === 0, trigger: event.currentTarget as HTMLButtonElement }
 }
 
-function leavePreview(id: string) {
-  if (previewId.value === id) previewId.value = undefined
-  // Restoring modal focus must not reopen the tooltip. A fresh hover or keyboard
-  // visit becomes available after the user actually leaves this place.
+function activatePreview(action: NonNullable<typeof activation>) {
+  if (open.value || props.interacting) return
+  const { memorial, keyboard } = action
+  clearPreviewTimers()
+  suppressedPreview.value = undefined
+  trigger = action.trigger
+  if (!keyboard && previewId.value === memorial.id && previewMode === 'pinned') {
+    closePreview(true)
+    return
+  }
+  previewMode = keyboard ? 'keyboard' : 'pinned'
+  previewId.value = memorial.id
+  if (keyboard) focusPreview(memorial.id)
+}
+
+function focusPreview(id: string) {
+  nextTick(() => {
+    if (previewId.value === id && !open.value) document.getElementById(`summary-${id}`)?.focus({ preventScroll: true })
+  })
+}
+
+function hoverPreview(id: string, event: PointerEvent) {
+  if (event.pointerType !== 'mouse' || !window.matchMedia('(any-hover: hover)').matches || open.value || props.interacting || suppressedPreview.value === id) return
+  clearTimeout(hoverTimer)
+  if (previewId.value === id) {
+    clearTimeout(closeTimer)
+    return
+  }
+  hoverTimer = setTimeout(() => {
+    if (open.value || props.interacting || suppressedPreview.value === id) return
+    clearTimeout(closeTimer)
+    previewMode = 'hover'
+    previewId.value = id
+  }, 180)
+}
+
+function leavePreview(id: string, event: PointerEvent) {
+  if (event.pointerType !== 'mouse') return
+  clearTimeout(hoverTimer)
   if (!open.value && suppressedPreview.value === id) suppressedPreview.value = undefined
+  if (previewId.value !== id || previewMode !== 'hover') return
+  clearTimeout(closeTimer)
+  closeTimer = setTimeout(() => {
+    if (previewId.value === id && previewMode === 'hover') closePreview()
+  }, 220)
 }
 
 function resumePreview(id: string, event: PointerEvent) {
-  if (event.pointerType !== 'mouse' || (!event.movementX && !event.movementY) || open.value || props.interacting || suppressedPreview.value !== id) return
+  if (event.pointerType !== 'mouse' || !window.matchMedia('(any-hover: hover)').matches || (!event.movementX && !event.movementY) || open.value || props.interacting || suppressedPreview.value !== id) return
   suppressedPreview.value = undefined
-  previewId.value = id
+  hoverPreview(id, event)
+}
+
+function previewContent(id: string) {
+  return {
+    side: 'top' as const, sideOffset: 10, collisionPadding: 16,
+    prioritizePosition: true, sticky: 'always' as const,
+    'data-memorial-preview': '',
+    onOpenAutoFocus: (event: Event) => {
+      event.preventDefault()
+      if (previewMode === 'keyboard') focusPreview(id)
+    },
+    onCloseAutoFocus: (event: Event) => event.preventDefault(),
+    onEscapeKeyDown: (event: KeyboardEvent) => {
+      event.preventDefault()
+      closePreview(true)
+      stoneElement(id)?.focus({ preventScroll: true })
+    },
+    onPointerenter: () => clearPreviewTimers(),
+    onPointerleave: (event: PointerEvent) => leavePreview(id, event)
+  }
+}
+
+function setPreviewOpen(id: string, value: boolean) {
+  const action = activation
+  activation = undefined
+  if (action?.memorial.id === id) activatePreview(action)
+  else if (!value && previewId.value === id) closePreview(true)
 }
 
 function revealFocused(event: FocusEvent, x: number, y: number) {
@@ -67,7 +157,7 @@ function restoreFocus(event: Event) {
     const active = document.activeElement
     // An action taken in the header while the dialog is closing must keep its focus.
     if (active && active !== document.body && !active.closest('.memorial-story-card')) return
-    const target = id ? document.getElementById(`stone-${id}`) : trigger
+    const target = id ? stoneElement(id) : trigger
     if (target?.isConnected) target.focus({ preventScroll: true })
   })
 }
@@ -82,7 +172,7 @@ watch([() => props.focusId, layout], async () => {
   const memorial = layout.value.places.find(place => place.memorial?.id === props.focusId)?.memorial
   if (!memorial) return
   await nextTick()
-  const button = document.getElementById(`stone-${memorial.id}`) as HTMLButtonElement | null
+  const button = stoneElement(memorial.id)
   if (!button) return
   revealedId = memorial.id
   trigger = button
@@ -90,37 +180,36 @@ watch([() => props.focusId, layout], async () => {
   selected.value = memorial
   open.value = true
 }, { immediate: true, flush: 'post' })
+onBeforeUnmount(clearPreviewTimers)
 </script>
 
 <template>
   <div class="memorial-controls" role="group" :aria-label="t('memorial.places')" :style="{ width: `${projection.width}px`, height: `${projection.height}px`, transform: `translate(${projection.offsetX + camera.x}px, ${projection.offsetY + camera.y}px) scale(${camera.zoom})` }">
     <div v-for="place in layout.places" :key="place.place" class="memorial-position" :data-world-x="place.x" :data-world-y="place.y" :data-chunk-id="place.chunkId" :style="{ left: `${place.x / width * 100}%`, top: `${(place.y + 5) / height * 100}%`, width: `${90 / width * 100}%`, height: `${100 / height * 100}%` }">
-      <UTooltip v-if="place.memorial" :open="previewId === place.memorial.id && !open && !interacting" :delay-duration="180" disable-hoverable-content :disabled="open || interacting" :content="{ side: 'top', collisionPadding: 16 }" :ui="{ content: 'memorial-preview pointer-events-none h-auto max-w-72 p-0 bg-[#fffcf5] text-[#244b3b] rounded-[12px] shadow-xl ring-1 ring-[#dcd9c7]' }" @update:open="togglePreview(place.memorial.id, $event)">
+      <UPopover v-if="place.memorial" :open="previewId === place.memorial.id && !open && !interacting" :modal="false" :content="previewContent(place.memorial.id)" :ui="{ content: 'memorial-preview h-auto w-72 max-w-[calc(100vw-32px)] p-0 bg-[#fffcf5] text-[#244b3b] rounded-[12px] shadow-xl ring-1 ring-[#dcd9c7]' }" @update:open="setPreviewOpen(place.memorial.id, $event)">
         <button
-          :id="`stone-${place.memorial.id}`"
           type="button"
           class="memorial-hit"
           :data-testid="`memorial-${place.memorial.id}`"
           :data-monument-kind="getMonumentKind(gardenId, place.place)"
-          :aria-label="t('memorial.open', { name: name(place.memorial), years: years(place.memorial), place: place.memorial.place })"
-          aria-haspopup="dialog"
+          :aria-label="t('memorial.preview', { name: name(place.memorial), years: years(place.memorial), place: place.memorial.place })"
           @focus="revealFocused($event, place.x / width, (place.y + 5) / height)"
-          @blur="leavePreview(place.memorial.id)"
-          @pointerleave="leavePreview(place.memorial.id)"
+          @pointerenter="hoverPreview(place.memorial.id, $event)"
+          @pointerleave="leavePreview(place.memorial.id, $event)"
           @pointermove="resumePreview(place.memorial.id, $event)"
-          @click="show(place.memorial, $event)"
+          @click.capture="prepareActivation(place.memorial, $event)"
         />
         <template #content>
-          <div class="memorial-summary" data-testid="memorial-summary">
-            <div class="memorial-summary-heading">
+          <button :id="`summary-${place.memorial.id}`" type="button" class="memorial-summary" data-testid="memorial-summary" :aria-label="t('memorial.readStory', { name: name(place.memorial) })" aria-haspopup="dialog" @click="show(place.memorial)" @focus="previewMode = 'keyboard'">
+            <span class="memorial-summary-heading">
               <span class="memorial-summary-emblem" aria-hidden="true"><PetSpeciesIcon :species="place.memorial.species" /></span>
-              <div><strong>{{ name(place.memorial) }}</strong><span>{{ t(`memorial.species.${place.memorial.species}`) }} · {{ years(place.memorial) }}</span></div>
-            </div>
-            <p>{{ quote(place.memorial) }}</p>
+              <span class="memorial-summary-title"><strong>{{ name(place.memorial) }}</strong><p>{{ t(`memorial.species.${place.memorial.species}`) }} · {{ years(place.memorial) }}</p></span>
+            </span>
+            <span class="memorial-summary-quote">{{ quote(place.memorial) }}</span>
             <small>{{ t('memorial.hint') }}<UIcon name="i-lucide-arrow-up-right" aria-hidden="true" /></small>
-          </div>
+          </button>
         </template>
-      </UTooltip>
+      </UPopover>
       <UTooltip v-else :text="t('creation.addAt', { place: place.place })" :disabled="interacting || !canCreate">
         <button
           :id="`empty-${gardenId}-${place.place}`"
@@ -176,14 +265,16 @@ watch([() => props.focusId, layout], async () => {
 .memorial-hit { display: block; width: 100%; height: 100%; min-height: 44px; border-radius: 18px; pointer-events: auto; cursor: pointer; touch-action: none; border: 0; background: transparent; }
 .memorial-hit:focus-visible { outline: 2px solid #fff5d9; outline-offset: 2px; background: #f2c9851a; }
 .memorial-empty:disabled { cursor: wait; }
-.memorial-summary { padding: 18px; display: grid; gap: 14px; white-space: normal; line-height: 1.5; }
+.memorial-summary { width: 100%; padding: 18px; display: grid; gap: 14px; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; text-align: left; cursor: pointer; border-radius: 12px; touch-action: manipulation; }
+.memorial-summary:hover { background: #f4f0e4; }
+.memorial-summary:focus-visible { outline: var(--focus-width) solid #9a6423; outline-offset: -3px; }
 .memorial-summary-heading { display: flex; align-items: center; gap: 12px; }
-.memorial-summary-heading > div { display: grid; gap: 3px; }
+.memorial-summary-title { display: grid; min-width: 0; gap: 3px; }
 .memorial-summary strong { font: 24px Georgia, serif; color: #213e36; }
-.memorial-summary-heading > div > span { font-size: 12px; color: #586b5e; }
+.memorial-summary-title > p { font-size: 12px; color: #586b5e; }
 .memorial-summary-emblem { width: 42px; height: 48px; display: grid; place-items: center; border-radius: 24px 24px 12px 12px; background: #e8ecdf; color: #315d46; flex-shrink: 0; }
 .memorial-summary-emblem > * { width: 24px; height: 24px; }
-.memorial-summary p { font: italic 17px/1.55 Georgia, serif; color: #4c5e55; }
+.memorial-summary-quote { font: italic 17px/1.55 Georgia, serif; color: #4c5e55; }
 .memorial-summary small { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 12px; border-top: 1px solid #e5dfcf; font-size: 12px; color: #526451; }
 .memorial-summary small > * { flex-shrink: 0; }
 .memorial-dedication { display: block; margin: 0 28px 18px; color: #ecd4a9; font: 10px/1.5 'Segoe UI', sans-serif; letter-spacing: 2px; text-transform: uppercase; }
@@ -220,8 +311,8 @@ h3 { font: 23px/1.3 Georgia, serif; color: #213e36; margin-bottom: 10px; }
 </style>
 
 <style>
-/* Previews are descriptive only; they must not block neighboring stones. */
-[data-reka-popper-content-wrapper]:has(.memorial-preview) { pointer-events: none; }
+/* The short card is interactive and stays readable while moving from its stone. */
+.memorial-preview { animation: none !important; }
 /* The dialog is portalled; scope its surface styles by the component class. */
 .memorial-story-card [data-slot='header'] { position: relative; flex-shrink: 0; text-align: center; border: 0; background: linear-gradient(#163b36de, #132f2af2), url('/images/34a7d373-ee89-4a01-a2e3-7fc7b31039c3.jpg') center 45% / cover; }
 .memorial-story-card [data-slot='title'] { color: #fff8e8; }

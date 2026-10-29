@@ -17,11 +17,10 @@ import type { GardenView } from '../utils/gardenProjection'
 import type { PublicMemorial } from '../../shared/memorials'
 import { createGardenAtmosphere } from '../utils/gardenAtmosphere'
 
-const props = withDefaults(defineProps<{ gardenId?: GardenId, memorials?: PublicMemorial[], placesState?: 'loading' | 'ready' | 'error', focusId?: string, canCreate?: boolean, editing?: boolean }>(), { memorials: () => [], placesState: 'ready', focusId: undefined, gardenId: undefined, canCreate: false, editing: false })
-const emit = defineEmits<{ select: [id: GardenId], create: [place: number], ready: [value: boolean], retry: [] }>()
+const props = withDefaults(defineProps<{ gardenId?: GardenId, memorials?: PublicMemorial[], placesState?: 'loading' | 'ready' | 'error', focusId?: string, canCreate?: boolean, editing?: boolean, fullscreen?: boolean }>(), { memorials: () => [], placesState: 'ready', focusId: undefined, gardenId: undefined, canCreate: false, editing: false, fullscreen: false })
+const emit = defineEmits<{ select: [id: GardenId], create: [place: number], ready: [value: boolean], retry: [], toggleFullscreen: [] }>()
 const { t, locale } = useI18n()
 const { seed: sessionSeed } = useGardenSession()
-const { fullscreen, supported: fullscreenSupported, busy: fullscreenBusy, toggleFullscreen } = useGardenFullscreen()
 const host = ref<HTMLDivElement>()
 const viewport = ref<HTMLDivElement>()
 const modalOpen = ref(false)
@@ -424,18 +423,22 @@ onBeforeUnmount(() => {
       <GardenLoading v-else :completed="loadingSteps" :phase="loadingPhase" />
     </div>
   </div>
-  <div v-if="isReady && gardenId" class="camera-toolbar" role="group" :aria-label="t('garden.camera.controls')">
-    <button type="button" :aria-label="t('garden.camera.in')" :title="t('garden.camera.in')" :disabled="camera.zoom >= 4 || editing || modalOpen" data-testid="garden-zoom-in" @click="zoomTo(camera.zoom * 1.25)"><UIcon name="i-lucide-plus" aria-hidden="true" /></button>
-    <output :aria-label="t('garden.camera.scale')">{{ Math.round(camera.zoom * 100) }}%</output>
-    <button type="button" :aria-label="t('garden.camera.out')" :title="t('garden.camera.out')" :disabled="camera.zoom <= 1 || editing || modalOpen" data-testid="garden-zoom-out" @click="zoomTo(camera.zoom / 1.25)"><UIcon name="i-lucide-minus" aria-hidden="true" /></button>
-    <button type="button" :aria-label="t('garden.camera.reset')" :title="t('garden.camera.reset')" :disabled="editing || modalOpen" data-testid="garden-camera-reset" @click="reset"><UIcon name="i-lucide-rotate-ccw" aria-hidden="true" /></button>
-    <button type="button" :aria-label="t(fullscreen ? 'garden.camera.exitFullscreen' : 'garden.camera.fullscreen')" :title="t(!fullscreenSupported ? 'garden.camera.fullscreenUnavailable' : fullscreen ? 'garden.camera.exitFullscreen' : 'garden.camera.fullscreen')" :aria-pressed="fullscreen" :disabled="!fullscreenSupported || fullscreenBusy" data-testid="garden-fullscreen" @click="toggleFullscreen"><UIcon :name="fullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'" aria-hidden="true" /></button>
-    <button v-if="!reducedMotion" type="button" :aria-pressed="paused" :aria-label="t(paused ? 'garden.resumeMotion' : 'garden.pauseMotion')" :title="t(paused ? 'garden.resumeMotion' : 'garden.pauseMotion')" data-testid="garden-motion" @click="paused = !paused"><UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" aria-hidden="true" /></button>
-    <button type="button" :aria-pressed="effectsEnabled && effectsSupported" :aria-label="t(!effectsSupported ? 'garden.effects.unavailable' : effectsEnabled ? 'garden.effects.disable' : 'garden.effects.enable')" :title="t(!effectsSupported ? 'garden.effects.unavailable' : effectsEnabled ? 'garden.effects.disable' : 'garden.effects.enable')" :disabled="!effectsSupported" :class="{ 'effects-active': effectsEnabled && effectsSupported }" data-testid="garden-effects" @click="toggleEffects"><UIcon :name="gardenId === 'lake' ? 'i-lucide-cloud-rain' : gardenId === 'meadow' ? 'i-lucide-sun' : gardenId === 'grove' ? 'i-lucide-sun-medium' : 'i-lucide-cloud-sun'" aria-hidden="true" /></button>
-    <UPopover :content="{ side: 'left', align: 'start', sideOffset: 12 }">
-      <button type="button" :aria-label="t('garden.camera.instructions')" :title="t('garden.camera.instructions')" data-testid="garden-help"><UIcon name="i-lucide-circle-help" aria-hidden="true" /></button>
-      <template #content><div class="garden-help-card"><p>{{ t('garden.camera.help') }}</p><p>{{ t('creation.mapHint') }}</p><p>{{ t('garden.effects.help') }}</p><p v-if="reducedMotion">{{ t('garden.reducedMotion') }}</p></div></template>
-    </UPopover>
+  <div v-if="gardenId && (isReady || fullscreen)" class="camera-toolbar" :class="{ 'camera-toolbar-loading': !isReady }" role="group" :aria-label="t('garden.camera.controls')">
+    <template v-if="isReady">
+      <button type="button" :aria-label="t('garden.camera.in')" :title="t('garden.camera.in')" :disabled="camera.zoom >= 4 || editing || modalOpen" data-testid="garden-zoom-in" @click="zoomTo(camera.zoom * 1.25)"><UIcon name="i-lucide-plus" aria-hidden="true" /></button>
+      <output :aria-label="t('garden.camera.scale')">{{ Math.round(camera.zoom * 100) }}%</output>
+      <button type="button" :aria-label="t('garden.camera.out')" :title="t('garden.camera.out')" :disabled="camera.zoom <= 1 || editing || modalOpen" data-testid="garden-zoom-out" @click="zoomTo(camera.zoom / 1.25)"><UIcon name="i-lucide-minus" aria-hidden="true" /></button>
+      <button type="button" :aria-label="t('garden.camera.reset')" :title="t('garden.camera.reset')" :disabled="editing || modalOpen" data-testid="garden-camera-reset" @click="reset"><UIcon name="i-lucide-rotate-ccw" aria-hidden="true" /></button>
+    </template>
+    <button type="button" :aria-label="t(fullscreen ? 'garden.camera.exitFullscreen' : 'garden.camera.fullscreen')" :title="t(fullscreen ? 'garden.camera.exitFullscreen' : 'garden.camera.fullscreen')" :aria-pressed="fullscreen" data-testid="garden-fullscreen" @click="emit('toggleFullscreen')"><UIcon :name="fullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'" aria-hidden="true" /></button>
+    <template v-if="isReady">
+      <button v-if="!reducedMotion" type="button" :aria-pressed="paused" :aria-label="t(paused ? 'garden.resumeMotion' : 'garden.pauseMotion')" :title="t(paused ? 'garden.resumeMotion' : 'garden.pauseMotion')" data-testid="garden-motion" @click="paused = !paused"><UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" aria-hidden="true" /></button>
+      <button type="button" :aria-pressed="effectsEnabled && effectsSupported" :aria-label="t(!effectsSupported ? 'garden.effects.unavailable' : effectsEnabled ? 'garden.effects.disable' : 'garden.effects.enable')" :title="t(!effectsSupported ? 'garden.effects.unavailable' : effectsEnabled ? 'garden.effects.disable' : 'garden.effects.enable')" :disabled="!effectsSupported" :class="{ 'effects-active': effectsEnabled && effectsSupported }" data-testid="garden-effects" @click="toggleEffects"><UIcon :name="gardenId === 'lake' ? 'i-lucide-cloud-rain' : gardenId === 'meadow' ? 'i-lucide-sun' : gardenId === 'grove' ? 'i-lucide-sun-medium' : 'i-lucide-cloud-sun'" aria-hidden="true" /></button>
+      <UPopover :content="{ side: 'left', align: 'start', sideOffset: 12 }">
+        <button type="button" :aria-label="t('garden.camera.instructions')" :title="t('garden.camera.instructions')" data-testid="garden-help"><UIcon name="i-lucide-circle-help" aria-hidden="true" /></button>
+        <template #content><div class="garden-help-card"><p>{{ t('garden.camera.help') }}</p><p>{{ t('creation.mapHint') }}</p><p>{{ t('garden.effects.help') }}</p><p v-if="reducedMotion">{{ t('garden.reducedMotion') }}</p></div></template>
+      </UPopover>
+    </template>
   </div>
   <p v-if="gardenId" id="garden-camera-help" class="sr-only">{{ t('garden.camera.help') }} {{ t('creation.mapHint') }}</p>
 </template>
@@ -463,6 +466,7 @@ onBeforeUnmount(() => {
 .camera-toolbar button:focus-visible { outline: var(--focus-width) solid #efc681; outline-offset: -2px; }
 .camera-toolbar button > .iconify { width: 19px; height: 19px; }
 .camera-toolbar output { padding-block: 3px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.camera-toolbar.camera-toolbar-loading { grid-template-columns: 44px; width: 48px; }
 .garden-help-card { max-width: min(290px, calc(100vw - 90px)); padding: 18px; border-radius: 12px; background: #fffcf5; color: #244b3b; font-size: 13px; line-height: 1.7; }
 .garden-help-card p + p { margin-top: 12px; }
 @media (max-width: 600px) { .camera-toolbar { top: calc(12px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right)); } }

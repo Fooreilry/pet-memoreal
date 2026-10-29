@@ -17,14 +17,13 @@ useHead({ htmlAttrs: { lang: () => locale.value }, meta: [{ name: 'robots', cont
         <LanguageSwitch />
       </div>
     </header>
-    <main id="auth-main" class="auth-layout shell">
+    <main id="auth-main" class="auth-layout shell" tabindex="-1">
       <aside class="auth-aside">
         <p class="eyebrow"><span class="small-line" />{{ t('hero.label') }}</p>
         <h2>{{ t('auth.asideTitle') }}</h2>
         <p class="auth-aside-description">{{ t('auth.asideDescription') }}</p>
-        <div class="auth-aside-note"><UIcon name="i-lucide-sprout" aria-hidden="true" /><p>{{ t('landing.accountNote') }}</p></div>
       </aside>
-      <section class="auth-card"><slot /></section>
+      <section class="auth-card" aria-labelledby="auth-title"><slot /></section>
     </main>
     <footer class="auth-footer shell"><p>{{ t('hero.artCaption') }}</p><NuxtLink :to="localePath('/gardens')">{{ t('garden.enter') }}<UIcon name="i-lucide-arrow-up-right" aria-hidden="true" /></NuxtLink></footer>
   </div>

@@ -1,3 +1,4 @@
+import { openMemorialStory } from './helpers/memorial'
 import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
@@ -48,8 +49,7 @@ test('the detailed lake opens from its preview and water lilies, mist and shorel
     const stone = page.getByTestId(`memorial-lake-${place}`)
     await stone.focus()
     await expect(stone).toBeInViewport()
-    if (isMobile) await stone.tap()
-    else await stone.click()
+    await openMemorialStory(page, stone, isMobile)
     await expect(page.getByRole('dialog').locator('.memorial-location')).toContainText(`Место ${place}`)
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -78,7 +78,7 @@ test('lake mist obeys pause and reduced motion while rotation and sparse plants 
   const first = page.getByTestId('memorial-lake-1')
   await first.focus()
   await expect(first).toBeInViewport()
-  await first.click()
+  await openMemorialStory(page, first)
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(scene).toHaveAttribute('data-motion', 'paused')
   await page.keyboard.press('Escape')
