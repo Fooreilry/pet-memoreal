@@ -113,13 +113,15 @@ for (const locale of ['ru', 'en']) {
     await expect(edit).toHaveAttribute('href', `/memorials/${id}/edit`)
     const close = story.getByRole('button', { name: locale === 'ru' ? 'Закрыть историю' : 'Close story', exact: true })
     const back = story.getByRole('button', { name: locale === 'ru' ? 'Вернуться в сад' : 'Return to the garden', exact: true })
-    const body = story.locator('[data-slot="body"]')
+    const body = page.getByTestId('memorial-detail-reading')
     await expect(close).toBeInViewport()
     await expect(back).toBeInViewport()
     await story.evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)))
     if (page.viewportSize()!.width <= 480) {
-      // Long identities stay complete without taking most of a phone's reading area.
-      expect((await story.locator('[data-slot="header"]').boundingBox())!.height).toBeLessThan(page.viewportSize()!.height * .45)
+      // A phone keeps the close-up above a scrollable, complete story.
+      const visual = (await page.getByTestId('memorial-detail-visual').boundingBox())!
+      expect(visual.height).toBeGreaterThanOrEqual(180)
+      expect(visual.height).toBeLessThanOrEqual(340)
     }
     const initialBack = (await back.boundingBox())!
     expect((await edit.boundingBox())!.height).toBeGreaterThanOrEqual(44)

@@ -4,7 +4,7 @@ import config from './playwright.config'
 // Page readiness checks use an isolated temporary database, including guest visits.
 export default defineConfig({
   ...config,
-  testMatch: ['locale.spec.ts', 'landing.spec.ts', 'theme.spec.ts', 'gardens.spec.ts', 'memorial-preview.spec.ts', 'garden-shell.spec.ts', 'garden-selection.spec.ts', 'garden-effects.spec.ts', 'garden-surfaces.spec.ts', 'garden-chunks.spec.ts', 'garden-session.spec.ts', 'monuments.spec.ts', 'hill.spec.ts', 'grove.spec.ts', 'lake.spec.ts', 'meadow.spec.ts'],
+  testMatch: ['locale.spec.ts', 'landing.spec.ts', 'theme.spec.ts', 'gardens.spec.ts', 'memorial-preview.spec.ts', 'memorial-detail.spec.ts', 'garden-transitions.spec.ts', 'garden-shell.spec.ts', 'garden-selection.spec.ts', 'garden-effects.spec.ts', 'garden-surfaces.spec.ts', 'garden-chunks.spec.ts', 'garden-session.spec.ts', 'monuments.spec.ts', 'hill.spec.ts', 'grove.spec.ts', 'lake.spec.ts', 'meadow.spec.ts'],
   webServer: {
     ...config.webServer,
     url: 'http://127.0.0.1:4174/',

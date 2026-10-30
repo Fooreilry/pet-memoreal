@@ -93,9 +93,13 @@ test('loading waits for every saved place before revealing the garden and its co
 test('leaving a loading garden ignores its late places response when another garden is open', async ({ page }) => {
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
+  let lakeSettled = false
+  const isLake = (url: string) => new URL(url).pathname === '/api/gardens/lake/memorials'
+  page.on('requestfinished', request => { if (isLake(request.url())) lakeSettled = true })
+  page.on('requestfailed', request => { if (isLake(request.url())) lakeSettled = true })
   await page.route('**/api/gardens/lake/memorials', async (route) => {
     await gate
-    await route.fulfill({ json: [] })
+    if (!route.request().failure()) await route.fulfill({ json: [] })
   })
   try {
     await visitLocale(page, '/gardens', 'en')
@@ -104,9 +108,8 @@ test('leaving a loading garden ignores its late places response when another gar
     await page.goBack()
     await page.getByTestId('garden-choice-grove').click()
     await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
-    const response = page.waitForResponse('**/api/gardens/lake/memorials')
     release()
-    await (await response).finished()
+    await expect.poll(() => lakeSettled).toBe(true)
     await expect(page.getByTestId('memorial-grove-1')).toBeVisible()
     await expect(page.locator('.memorial-hit')).toHaveCount(16)
     await expect(page.getByTestId('garden-loading')).toHaveCount(0)

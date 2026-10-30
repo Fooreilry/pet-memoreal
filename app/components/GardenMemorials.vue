@@ -6,10 +6,9 @@ import type { PublicMemorial } from '../../shared/memorials'
 import { getMonumentKind } from '../data/monuments'
 import type { GardenProjection } from '../utils/gardenProjection'
 
-const props = defineProps<{ gardenId: GardenId, width: number, height: number, projection: GardenProjection, camera: { zoom: number, x: number, y: number }, interacting: boolean, saved: PublicMemorial[], focusId?: string, canCreate: boolean }>()
-const emit = defineEmits<{ modal: [open: boolean], reveal: [x: number, y: number, halfWidth: number, halfHeight: number], create: [place: number] }>()
+const props = withDefaults(defineProps<{ gardenId: GardenId, width: number, height: number, projection: GardenProjection, camera: { zoom: number, x: number, y: number }, interacting: boolean, blocked?: boolean, detailReady?: boolean, saved: PublicMemorial[], focusId?: string, canCreate: boolean, paused: boolean, reducedMotion: boolean, effectsEnabled: boolean, effectsSupported: boolean }>(), { blocked: false, detailReady: true, focusId: undefined })
+const emit = defineEmits<{ modal: [open: boolean], detail: [memorial: GardenMemorial | undefined], pause: [], effects: [], reveal: [x: number, y: number, halfWidth: number, halfHeight: number], create: [place: number] }>()
 const { t } = useI18n()
-const localePath = useLocalePath()
 const layout = computed(() => getMemorialLayout(props.width, props.height, props.gardenId, props.saved))
 const selected = shallowRef<GardenMemorial>()
 const open = ref(false)
@@ -20,6 +19,8 @@ let hoverTimer: ReturnType<typeof setTimeout> | undefined
 let closeTimer: ReturnType<typeof setTimeout> | undefined
 let trigger: HTMLButtonElement | undefined
 let activation: { memorial: GardenMemorial, keyboard: boolean, trigger: HTMLButtonElement } | undefined
+let restoringFocus = false
+let pendingRestore: string | undefined
 
 function stoneElement(id: string) {
   return document.querySelector<HTMLButtonElement>(`[data-testid="memorial-${id}"]`)
@@ -42,7 +43,13 @@ watch(open, value => {
   suppressedPreview.value = selected.value?.id
   emit('modal', value)
 }, { flush: 'sync' })
+watch([open, selected], ([value, memorial]) => emit('detail', value ? memorial : undefined), { flush: 'sync' })
 watch(() => props.interacting, value => { if (value) closePreview(true) }, { flush: 'sync' })
+watch(() => props.blocked, (blocked) => {
+  if (blocked) closePreview(true)
+  else if (pendingRestore) restoreMarkerFocus()
+})
+watch(() => props.detailReady, (ready) => { if (ready && open.value) focusDetailClose() })
 watch(layout, value => {
   if (previewId.value && !value.places.some(place => place.memorial?.id === previewId.value)) closePreview()
   if (selected.value?.source !== 'saved') return
@@ -52,7 +59,7 @@ watch(layout, value => {
 })
 
 function show(memorial: GardenMemorial) {
-  if (props.interacting) return
+  if (props.interacting || props.blocked) return
   trigger = stoneElement(memorial.id) ?? undefined
   selected.value = memorial
   open.value = true
@@ -146,21 +153,56 @@ function setPreviewOpen(id: string, value: boolean) {
 
 function revealFocused(event: FocusEvent, x: number, y: number) {
   // Pointer focus must not move a stone between pressing and releasing it.
-  if ((event.currentTarget as HTMLButtonElement).matches(':active')) return
+  if (restoringFocus || (event.currentTarget as HTMLButtonElement).matches(':active')) return
   emit('reveal', x, y, 45 / props.width, 50 / props.height)
 }
 
 function restoreFocus(event: Event) {
   event.preventDefault()
-  const id = selected.value?.id
+  pendingRestore = selected.value?.id
+  if (!props.blocked) restoreMarkerFocus()
+}
+
+function restoreMarkerFocus() {
+  const id = pendingRestore
   nextTick(() => {
     const active = document.activeElement
     // An action taken in the header while the dialog is closing must keep its focus.
-    if (active && active !== document.body && !active.closest('.memorial-story-card')) return
+    if (active && active !== document.body && !active.closest('.memorial-story-card, .scene-preparing')) { pendingRestore = undefined; return }
     const target = id ? stoneElement(id) : trigger
-    if (target?.isConnected) target.focus({ preventScroll: true })
+    if (target?.isConnected) {
+      restoringFocus = true
+      target.focus({ preventScroll: true })
+      restoringFocus = false
+    }
+    pendingRestore = undefined
   })
 }
+
+function focusDetail(event: Event) {
+  event.preventDefault()
+  if (props.detailReady) focusDetailClose()
+  else nextTick(() => document.querySelector<HTMLButtonElement>('[data-testid="scene-cancel"]')?.focus({ preventScroll: true }))
+}
+
+function focusDetailClose() {
+  nextTick(() => { if (open.value) document.querySelector<HTMLButtonElement>('.memorial-detail-layer .memorial-close')?.focus({ preventScroll: true }) })
+}
+
+// Nuxt UI forwards additional content attributes to the native dialog node.
+const detailContent = computed(() => ({
+  onCloseAutoFocus: restoreFocus,
+  onOpenAutoFocus: focusDetail,
+  onInteractOutside: (event: Event) => {
+    const target = (event as CustomEvent<{ originalEvent: Event }>).detail?.originalEvent?.target
+    // The preparation cancel button belongs to this view, although its veil
+    // sits outside the dialog so the waiting content can stay entirely inert.
+    if (target instanceof Element && target.closest('.scene-preparing')) event.preventDefault()
+  },
+  inert: !props.detailReady,
+  'aria-hidden': !props.detailReady || undefined
+}))
+defineExpose({ closeDetail: () => { open.value = false } })
 
 function name(memorial: GardenMemorial) { return memorial.source === 'saved' ? memorial.name : t(`garden.pets.${memorial.profile}`) }
 function quote(memorial: GardenMemorial) { return memorial.source === 'saved' ? memorial.story : t(`memorial.profiles.${memorial.profile}.quote`) }
@@ -180,11 +222,11 @@ watch([() => props.focusId, layout], async () => {
   selected.value = memorial
   open.value = true
 }, { immediate: true, flush: 'post' })
-onBeforeUnmount(clearPreviewTimers)
+onBeforeUnmount(() => { clearPreviewTimers(); emit('detail', undefined); emit('modal', false) })
 </script>
 
 <template>
-  <div class="memorial-controls" role="group" :aria-label="t('memorial.places')" :style="{ width: `${projection.width}px`, height: `${projection.height}px`, transform: `translate(${projection.offsetX + camera.x}px, ${projection.offsetY + camera.y}px) scale(${camera.zoom})` }">
+  <div class="memorial-controls" role="group" :inert="open || blocked" :aria-hidden="open || blocked || undefined" :aria-label="t('memorial.places')" :style="{ width: `${projection.width}px`, height: `${projection.height}px`, transform: `translate(${projection.offsetX + camera.x}px, ${projection.offsetY + camera.y}px) scale(${camera.zoom})` }">
     <div v-for="place in layout.places" :key="place.place" class="memorial-position" :data-world-x="place.x" :data-world-y="place.y" :data-chunk-id="place.chunkId" :style="{ left: `${place.x / width * 100}%`, top: `${(place.y + 5) / height * 100}%`, width: `${90 / width * 100}%`, height: `${100 / height * 100}%` }">
       <UPopover v-if="place.memorial" :open="previewId === place.memorial.id && !open && !interacting" :modal="false" :content="previewContent(place.memorial.id)" :ui="{ content: 'memorial-preview h-auto w-80 max-w-[calc(100vw-32px)] p-0 bg-[var(--surface-panel)] text-[var(--ui-text-highlighted)] rounded-[var(--panel-radius)] shadow-xl ring-1 ring-[var(--ui-border)]' }" @update:open="setPreviewOpen(place.memorial.id, $event)">
         <button
@@ -227,35 +269,19 @@ onBeforeUnmount(clearPreviewTimers)
   <UModal
     v-if="selected"
     v-model:open="open"
-    class="memorial-story-card"
-    :class="{ 'memorial-story-long-name': name(selected).length > 36 }"
+    class="memorial-story-card memorial-detail-layer"
     :title="name(selected)"
     :description="`${t(`memorial.species.${selected.species}`)} · ${years(selected)}`"
-    :content="{ onCloseAutoFocus: restoreFocus }"
-    :ui="{ overlay: 'bg-[var(--garden-night)]/70 backdrop-blur-sm', content: 'bg-[var(--surface-panel)] rounded-[var(--panel-radius)] max-w-xl ring-1 ring-[var(--ui-border)]', header: 'block py-6 px-16', wrapper: 'w-full', title: 'font-normal', description: 'mt-3', body: 'min-h-0 overflow-y-auto p-5 sm:p-8', footer: 'p-4 sm:px-8 gap-4 justify-between' }"
+    :modal="false"
+    :overlay="false"
+    :portal="false"
+    :transition="false"
+    fullscreen
+    :content="detailContent"
+    :ui="{ content: 'absolute z-[var(--garden-detail-layer)] bg-transparent rounded-none ring-0 shadow-none' }"
   >
-    <template #title>
-      <span class="memorial-dedication" aria-hidden="true">{{ t('memorial.inMemory') }}</span>
-      <span class="memorial-emblem" aria-hidden="true"><PetSpeciesIcon :species="selected.species" /></span>
-      <span class="memorial-name">{{ name(selected) }}</span>
-    </template>
-    <template #close><UButton class="memorial-close absolute top-3 end-3" icon="i-lucide-x" color="neutral" variant="ghost" :aria-label="t('memorial.close')" /></template>
-    <template #body>
-      <div class="memorial-details">
-        <div class="memorial-location-row">
-          <p class="memorial-location"><UIcon name="i-lucide-sprout" aria-hidden="true" />{{ t('memorial.location', { garden: t(`garden.names.${selected.gardenId}`), place: selected.place }) }}</p>
-          <UButton v-if="selected.source === 'saved' && selected.canEdit" class="memorial-edit" :to="localePath(`/memorials/${selected.id}/edit`)" icon="i-lucide-pencil" color="primary" variant="soft" :aria-label="t('editing.edit')" data-testid="memorial-edit">{{ t('memorial.edit') }}</UButton>
-        </div>
-        <p v-if="selected.source === 'saved'" class="memorial-creator" data-testid="memorial-creator"><UIcon :name="selected.creatorName ? 'i-lucide-user-round' : 'i-lucide-user-round-minus'" aria-hidden="true" /><span>{{ t('memorial.creator') }} <strong>{{ selected.creatorName ?? t('memorial.anonymous') }}</strong></span></p>
-        <blockquote v-if="selected.source === 'demo'"><UIcon name="i-lucide-heart" aria-hidden="true" /><p>{{ quote(selected) }}</p></blockquote>
-        <section class="memorial-story"><h3>{{ t('memorial.story') }}</h3><p class="whitespace-pre-line">{{ selected.source === 'saved' ? selected.story : t(`memorial.profiles.${selected.profile}.story`) }}</p></section>
-        <section v-if="selected.source === 'demo'" class="memorial-favorite"><UIcon name="i-lucide-sun" aria-hidden="true" /><div><h3>{{ t('memorial.favorite') }}</h3><p>{{ t(`memorial.profiles.${selected.profile}.favorite`) }}</p></div></section>
-        <p v-if="selected.source === 'demo'" class="memorial-demo"><UIcon name="i-lucide-info" aria-hidden="true" />{{ t('memorial.demo') }}</p>
-      </div>
-    </template>
-    <template #footer>
-      <span class="memorial-keepsake"><UIcon name="i-lucide-leaf" aria-hidden="true" />{{ t('memorial.remembered') }}</span>
-      <UButton class="memorial-return" icon="i-lucide-arrow-left" color="primary" @click="open = false">{{ t('memorial.back') }}</UButton>
+    <template #content>
+      <GardenMemorialDetail :memorial="selected" :paused="paused" :reduced-motion="reducedMotion" :effects-enabled="effectsEnabled" :effects-supported="effectsSupported" @close="open = false" @pause="emit('pause')" @effects="emit('effects')" />
     </template>
   </UModal>
 </template>
@@ -278,64 +304,10 @@ onBeforeUnmount(clearPreviewTimers)
 .memorial-summary-quote { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font: italic 18px/1.55 var(--font-display); color: var(--ui-text); }
 .memorial-summary-action { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding-top: 14px; border-top: 1px solid var(--ui-border); font-size: 14px; font-weight: 600; color: var(--color-garden-800); }
 .memorial-summary-action > * { flex-shrink: 0; width: 18px; height: 18px; }
-.memorial-dedication { display: block; margin: 0 0 12px; color: var(--color-lantern-200); font: 11px/1.5 var(--font-sans); letter-spacing: 1.4px; text-transform: uppercase; }
-.memorial-emblem { width: 56px; height: 56px; display: grid; place-items: center; margin: 0 auto 12px; background: var(--garden-mist); color: var(--color-garden-800); border-radius: var(--panel-radius); }
-.memorial-emblem > * { width: 30px; height: 30px; }
-.memorial-name { display: block; font: 38px/1.15 var(--font-display); overflow-wrap: anywhere; }
-.memorial-details { display: grid; gap: 24px; min-width: 0; line-height: 1.8; color: var(--ui-text); overflow-wrap: anywhere; }
-.memorial-location { display: flex; align-items: start; gap: 8px; font-size: 14px; line-height: 1.6; color: var(--ui-text-muted); }
-.memorial-location > * { flex-shrink: 0; width: 18px; height: 18px; margin-top: 2px; }
-.memorial-location-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
-.memorial-location-row .memorial-location { flex: 1; min-width: 0; }
-.memorial-edit { flex: 0 0 auto; min-height: 44px; padding: 10px 12px; justify-content: center; border-radius: var(--control-radius); font-size: 14px; }
-.memorial-creator { display: flex; align-items: start; gap: 10px; padding: 14px 16px; border: 1px solid var(--ui-border); border-radius: var(--control-radius); background: var(--garden-cream); font-size: 14px; }
-.memorial-creator > .iconify { flex-shrink: 0; width: 18px; height: 18px; margin-top: 3px; color: var(--ui-text-muted); }
-.memorial-creator strong { font-weight: 600; color: var(--color-garden-800); }
-blockquote { padding: 0 12px 24px; border-bottom: 1px solid var(--ui-border); font: italic 23px/1.5 var(--font-display); color: var(--color-garden-700); text-align: center; }
-blockquote > .iconify { display: block; width: 18px; height: 18px; margin: 0 auto 12px; color: var(--color-lantern-700); }
-h3 { font: 24px/1.3 var(--font-display); color: var(--ui-text-highlighted); margin-bottom: 12px; }
-.memorial-story p, .memorial-favorite p { font-size: 16px; }
-.memorial-favorite { display: flex; align-items: start; gap: 14px; padding: 20px; border-radius: var(--control-radius); background: var(--garden-mist); border: 1px solid var(--ui-border); }
-.memorial-favorite > .iconify { flex-shrink: 0; width: 22px; height: 22px; margin-top: 2px; color: var(--color-lantern-700); }
-.memorial-favorite h3 { font-size: 21px; margin-bottom: 8px; }
-.memorial-demo { display: flex; align-items: start; gap: 8px; font-size: 14px; line-height: 1.6; color: var(--ui-text-muted); }
-.memorial-demo > * { flex-shrink: 0; margin-top: 3px; width: 16px; height: 16px; }
-.memorial-keepsake { display: flex; align-items: center; gap: 7px; font: italic 15px var(--font-display); color: var(--ui-text-muted); }
-@media (max-width: 480px) {
-  .memorial-details { gap: 20px; }
-  .memorial-name { font-size: 32px; }
-  blockquote { padding-inline: 0; font-size: 22px; }
-  .memorial-favorite { padding: 16px; gap: 10px; }
-  .memorial-keepsake { display: none; }
-}
 </style>
 
 <style>
-/* The short card is interactive and stays readable while moving from its stone. */
 .memorial-preview { animation: none !important; }
-/* The dialog is portalled; scope its surface styles by the component class. */
-.memorial-story-card [data-slot='header'] { position: relative; flex-shrink: 0; text-align: center; border: 0; background: linear-gradient(#163b36de, #132f2af2), url('/images/34a7d373-ee89-4a01-a2e3-7fc7b31039c3.jpg') center 45% / cover; }
-.memorial-story-card [data-slot='title'] { color: var(--color-lantern-50); }
-.memorial-story-card [data-slot='description'] { color: var(--color-garden-100); font-size: 15px; line-height: 1.6; }
-.memorial-story-card [data-slot='footer'] { flex-shrink: 0; border-color: var(--ui-border); background: var(--garden-cream); }
-.memorial-story-card .memorial-close { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid #d9e3ca35; border-radius: var(--control-radius); background: var(--color-garden-900); color: var(--color-lantern-50); }
-.memorial-story-card .memorial-close:hover { background: var(--color-garden-800); }
-.memorial-story-card .memorial-close:focus-visible { outline: var(--focus-width) solid var(--color-lantern-300); outline-offset: var(--focus-offset); }
-.memorial-story-card .memorial-return { min-height: 44px; padding: 12px 18px; justify-content: center; border-radius: var(--control-radius); background: var(--color-garden-800); color: var(--color-lantern-50); }
-.memorial-story-card .memorial-return:hover { background: var(--color-garden-900); }
-@media (max-width: 480px) {
-  .memorial-story-card .memorial-return { width: 100%; }
-  .memorial-story-long-name .memorial-dedication, .memorial-story-long-name .memorial-emblem { display: none; }
-  .memorial-story-long-name .memorial-name { font-size: 24px; }
-}
-@media (max-height: 600px) {
-  .memorial-story-card [data-slot='header'] { padding: 16px 60px; }
-  .memorial-story-card .memorial-dedication, .memorial-story-card .memorial-emblem { display: none; }
-  .memorial-story-card .memorial-name { font-size: 30px; }
-  .memorial-story-card.memorial-story-long-name .memorial-name { font-size: 24px; }
-  .memorial-story-card [data-slot='description'] { margin-top: 8px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .memorial-story-card { animation: none !important; transition: none !important; }
-}
+/* A persistent, non-modal view fills only the owning map stage. */
+.memorial-detail-layer { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; transform: none; overflow: hidden; }
 </style>

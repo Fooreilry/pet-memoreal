@@ -198,7 +198,7 @@ test('lake rain is visibly animated over the ground and respects reduced motion,
   expect(errors).toEqual([])
 })
 
-test('light follows motion pause and the story dialog, while toggling it leaves the garden camera and memorials usable', async ({ page, isMobile }) => {
+test('light follows motion pause and the close-up, while toggling it leaves the garden camera and memorials usable', async ({ page, isMobile }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await visitLocale(page, '/gardens?garden=grove', 'en')
   await ready(page)
@@ -235,11 +235,18 @@ test('light follows motion pause and the story dialog, while toggling it leaves 
   await expect(stone).toBeInViewport()
   await openMemorialStory(page, stone, isMobile)
   await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(scene).toHaveAttribute('data-detail-state', 'ready')
   await expect(scene).toHaveAttribute('data-effects', 'on')
+  // The new third level has its own living foreground; the original map stays frozen.
+  await expect(scene).toHaveAttribute('data-motion', 'running')
+  const storyMoving = await sceneryFrame(page)
+  await expect.poll(async () => Buffer.compare(storyMoving, await sceneryFrame(page))).not.toBe(0)
+  await page.getByTestId('memorial-detail-motion').click()
   await expect(scene).toHaveAttribute('data-motion', 'paused')
   const storyStill = await sceneryFrame(page)
   await page.waitForTimeout(250)
   expect(Buffer.compare(storyStill, await sceneryFrame(page))).toBe(0)
+  await page.getByTestId('memorial-detail-motion').click()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(scene).toHaveAttribute('data-motion', 'running')

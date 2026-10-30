@@ -6,6 +6,7 @@ import { getGardenLayout } from '../data/gardenLayout'
 const themes: Record<GardenId, number> = { meadow: 0, lake: 1, grove: 2, hill: 3 }
 type ProgramData = ReturnType<WebGLRenderer['shader']['_getProgramData']>
 type PreparedProgram = { renderer: WebGLRenderer, gl: WebGLRenderer['gl'], data: ProgramData, supported: boolean }
+type FocusRect = { left: number, top: number, width: number, height: number }
 // Pixi 8.21 exposes compilation but not per-program removal. Keep its internal
 // cache access confined here; this filter owns its unique named program/key.
 type ShaderProgramCache = {
@@ -41,6 +42,8 @@ out vec4 finalColor;
 uniform float uTime;
 uniform float uTheme;
 uniform float uAspect;
+uniform float uFocus;
+uniform highp vec4 uFocusRect;
 uniform highp float uWeatherTime;
 uniform vec2 uViewport;
 uniform vec4 uView;
@@ -89,8 +92,20 @@ float waterRipples(vec2 world, vec4 pond) {
 }
 
 void main() {
-  vec2 p = vec2(vUv.x * uAspect, vUv.y);
-  float edge = smoothstep(0.24, 0.76, length((vUv - 0.5) * vec2(0.9, 1.0)));
+  // Focus light belongs to the illustrated window, including on portrait phones.
+  vec2 sceneUv = vUv;
+  float sceneAspect = uAspect;
+  if (uFocus > 0.5) {
+    sceneUv = (vUv - uFocusRect.xy) / max(uFocusRect.zw, vec2(0.0001));
+    if (uFocusRect.z <= 0.0 || uFocusRect.w <= 0.0
+      || any(lessThan(sceneUv, vec2(0.0))) || any(greaterThan(sceneUv, vec2(1.0)))) {
+      finalColor = vec4(0.0);
+      return;
+    }
+    sceneAspect = uAspect * uFocusRect.z / max(uFocusRect.w, 0.0001);
+  }
+  vec2 p = vec2(sceneUv.x * sceneAspect, sceneUv.y);
+  float edge = smoothstep(0.24, 0.76, length((sceneUv - 0.5) * vec2(0.9, 1.0)));
   float shade = edge * 0.035;
   float light = 0.0;
   float detail = 0.0;
@@ -104,10 +119,24 @@ void main() {
     float direction = (p.x - 0.12) / (p.y + 0.34);
     float ray = smoothstep(0.25, 0.96, sin(direction * 8.0 + sin(uTime * 0.6) * 0.2));
     float fineRay = smoothstep(0.68, 0.99, sin(direction * 19.0 - uTime * 0.3));
-    float reach = 1.0 - smoothstep(0.15, 1.35, vUv.y);
+    float reach = 1.0 - smoothstep(0.15, 1.35, sceneUv.y);
     float halo = 1.0 - smoothstep(0.02, 0.72, length((p - vec2(0.12, -0.06)) * vec2(0.85, 1.0)));
     light = (ray * 0.17 + fineRay * 0.055) * reach + halo * 0.105;
     lightColor = vec3(1.0, 0.87, 0.50);
+    if (uFocus > 0.5) {
+      // Broad shafts come from the close-up's sun rather than starting behind
+      // the paper panel as the overhead map's lighting would.
+      vec2 sunDelta = p - vec2(sceneAspect * 0.72, 0.23);
+      float angle = atan(sunDelta.x, sunDelta.y + 0.0001);
+      float focusRay = smoothstep(0.28, 0.96, sin(angle * 7.0 + sin(uTime * 0.7) * 0.12));
+      float fineFocusRay = smoothstep(0.78, 1.0, sin(angle * 13.0 - uTime * 0.25));
+      float cone = 1.0 - smoothstep(1.05, 1.48, abs(angle));
+      float focusReach = smoothstep(0.015, 0.095, sunDelta.y) * cone
+        * (1.0 - smoothstep(0.32, 1.35, length(sunDelta)));
+      float sunHalo = 1.0 - smoothstep(0.04, 0.55, length((sceneUv - vec2(0.72, 0.23)) * vec2(sceneAspect, 1.0)));
+      light = (focusRay * 0.24 + fineFocusRay * 0.025) * focusReach + sunHalo * 0.13;
+      lightColor = vec3(1.0, 0.91, 0.64);
+    }
   } else if (uTheme < 1.5) {
     // Lake: soft slanted rain and water-local expanding rings, with a little
     // cool weather depth. Ground and names remain visible through the rain.
@@ -121,16 +150,29 @@ void main() {
     detail = min(0.31, rain * 0.29 + ripples * 0.26);
     lightColor = vec3(0.65, 0.85, 0.92);
     shadeColor = vec3(0.09, 0.22, 0.25);
+    if (uFocus > 0.5) {
+      detail = min(0.36, rain * 0.34 + ripples * 0.30);
+      light *= 1.3;
+      shade += 0.012;
+    }
   } else if (uTheme < 2.5) {
     // Grove: dappled shadows with warm beams breaking through the canopy.
     float canopy = sin(p.x * 6.0 + sin(p.y * 4.5 + uTime * 0.5) * 0.65)
       * cos(p.y * 5.0 - uTime * 0.25);
     float beam = smoothstep(0.55, 0.98, sin(p.x * 10.0 - p.y * 4.0 + sin(uTime * 0.5) * 0.2));
-    light = smoothstep(0.12, 0.85, canopy) * (1.0 - vUv.y * 0.4) * 0.16;
-    light += beam * (1.0 - smoothstep(0.15, 1.0, vUv.y)) * 0.11;
+    light = smoothstep(0.12, 0.85, canopy) * (1.0 - sceneUv.y * 0.4) * 0.16;
+    light += beam * (1.0 - smoothstep(0.15, 1.0, sceneUv.y)) * 0.11;
     shade += smoothstep(0.05, 0.95, -canopy) * 0.105;
     lightColor = vec3(0.98, 0.94, 0.64);
     shadeColor = vec3(0.07, 0.19, 0.14);
+    if (uFocus > 0.5) {
+      float dapple = sin(p.x * 9.0 + sin(p.y * 7.0 + uTime * 0.65) * 0.9)
+        * cos(p.y * 7.0 - p.x * 2.0 - uTime * 0.35);
+      float focusBeam = smoothstep(0.38, 0.94, sin(p.x * 7.0 - p.y * 3.8 + sin(uTime * 0.6) * 0.25));
+      light = smoothstep(0.22, 0.85, dapple) * 0.22
+        + focusBeam * (1.0 - smoothstep(0.35, 1.15, sceneUv.y)) * 0.20;
+      shade += smoothstep(0.03, 0.85, -dapple) * 0.20;
+    }
   } else {
     // Hill: larger cloud banks travel over the slopes with light at their edges.
     float cloud = sin(p.x * 2.1 + p.y * 1.3 + uTime * 0.8)
@@ -139,6 +181,15 @@ void main() {
     light = (1.0 - smoothstep(-0.8, 0.2, cloud)) * 0.10;
     lightColor = vec3(0.87, 0.94, 0.99);
     shadeColor = vec3(0.16, 0.25, 0.26);
+    if (uFocus > 0.5) {
+      float focusCloud = sin(p.x * 2.6 + p.y * 1.9 + uTime * 1.8)
+        + cos(p.y * 4.3 - p.x * 1.2 - uTime * 0.8) * 0.62;
+      float cloudShade = smoothstep(-0.25, 0.90, focusCloud);
+      float cloudEdge = smoothstep(-0.50, 0.0, focusCloud)
+        * (1.0 - smoothstep(0.05, 0.55, focusCloud));
+      shade = edge * 0.035 + cloudShade * 0.27;
+      light = cloudEdge * 0.15 + (1.0 - cloudShade) * 0.10;
+    }
   }
 
   // Premultiplied alpha: retain the original artwork and names beneath the light.
@@ -146,7 +197,7 @@ void main() {
   vec3 color = lightColor * light + shadeColor * shade * (1.0 - light);
   color = detailColor * detail + color * (1.0 - detail);
   alpha = detail + alpha * (1.0 - detail);
-  float strength = min(1.0, 0.34 / max(alpha, 0.0001));
+  float strength = min(1.0, mix(0.34, 0.42, uFocus) / max(alpha, 0.0001));
   finalColor = vec4(color * strength, alpha * strength);
 }`
 
@@ -155,6 +206,8 @@ export function createGardenAtmosphere(width: number, height: number, gardenId: 
   const viewport = new Float32Array([width, height])
   const pond0 = new Float32Array([0, 0, 1, 1])
   const pond1 = new Float32Array([0, 0, 1, 1])
+  const focusRect = new Float32Array([0, 0, 1, 1])
+  const focusBounds: FocusRect = { left: 0, top: 0, width, height }
   const root = new Container({ label: 'garden-atmosphere' })
   root.eventMode = 'none'
   root.interactiveChildren = false
@@ -175,6 +228,8 @@ export function createGardenAtmosphere(width: number, height: number, gardenId: 
         uWeatherTime: { value: 0, type: 'f32' },
         uTheme: { value: themes[gardenId], type: 'f32' },
         uAspect: { value: 1, type: 'f32' },
+        uFocus: { value: 0, type: 'f32' },
+        uFocusRect: { value: focusRect, type: 'vec4<f32>' },
         uViewport: { value: viewport, type: 'vec2<f32>' },
         uView: { value: view, type: 'vec4<f32>' },
         uPond0: { value: pond0, type: 'vec4<f32>' },
@@ -187,6 +242,24 @@ export function createGardenAtmosphere(width: number, height: number, gardenId: 
   const preparedPrograms = new Map<WebGLRenderer, PreparedProgram>()
   let currentWidth = 0, currentHeight = 0
   let waterLoaded = false
+
+  function updateFocusRect() {
+    if (!uniforms.uFocus) {
+      focusRect[0] = 0
+      focusRect[1] = 0
+      focusRect[2] = 1
+      focusRect[3] = 1
+      return
+    }
+    const left = Math.max(0, Math.min(currentWidth, focusBounds.left))
+    const top = Math.max(0, Math.min(currentHeight, focusBounds.top))
+    const right = Math.max(left, Math.min(currentWidth, focusBounds.left + focusBounds.width))
+    const bottom = Math.max(top, Math.min(currentHeight, focusBounds.top + focusBounds.height))
+    focusRect[0] = left / currentWidth
+    focusRect[1] = top / currentHeight
+    focusRect[2] = (right - left) / currentWidth
+    focusRect[3] = (bottom - top) / currentHeight
+  }
 
   function releaseProgram({ renderer, gl, data }: PreparedProgram) {
     const shader = renderer.shader
@@ -231,6 +304,7 @@ export function createGardenAtmosphere(width: number, height: number, gardenId: 
     uniforms.uAspect = w / h
     viewport[0] = w
     viewport[1] = h
+    updateFocusRect()
   }
 
   function update(seconds: number) {
@@ -257,6 +331,20 @@ export function createGardenAtmosphere(width: number, height: number, gardenId: 
     view[2] = Math.max(0.001, Number.isFinite(next.scale) ? next.scale : 1)
   }
 
+  // Coordinates are CSS pixels in the current canvas, not the garden world.
+  // This mutates one existing uniform vector; returning to the map is exact.
+  function setFocus(enabled: boolean, bounds?: FocusRect) {
+    if (root.destroyed) return
+    uniforms.uFocus = enabled ? 1 : 0
+    if (enabled) {
+      focusBounds.left = Number.isFinite(bounds?.left) ? bounds!.left : 0
+      focusBounds.top = Number.isFinite(bounds?.top) ? bounds!.top : 0
+      focusBounds.width = Math.max(0, Number.isFinite(bounds?.width) ? bounds!.width : bounds ? 0 : currentWidth)
+      focusBounds.height = Math.max(0, Number.isFinite(bounds?.height) ? bounds!.height : bounds ? 0 : currentHeight)
+    }
+    updateFocusRect()
+  }
+
   function setEnabled(enabled: boolean) {
     if (!root.destroyed) root.visible = enabled
   }
@@ -269,5 +357,5 @@ export function createGardenAtmosphere(width: number, height: number, gardenId: 
   })
   resize(width, height)
   setGarden(gardenId)
-  return { root, prepare, resize, update, setGarden, setView, setEnabled, destroy: () => root.destroy({ children: true, context: true }) }
+  return { root, prepare, resize, update, setGarden, setView, setFocus, setEnabled, destroy: () => root.destroy({ children: true, context: true }) }
 }

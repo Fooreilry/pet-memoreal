@@ -56,10 +56,13 @@ test('scenery zoom animates with ambient motion paused and stops after hover set
   await page.getByTestId('garden-overview').focus()
   await page.mouse.move(0, 0)
   await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/\/gardens$/)
   const scene = page.locator('.canvas-wrapper')
   await expect(scene).toHaveAttribute('data-state', 'ready')
   await expect(scene).toHaveAttribute('data-motion', 'paused')
   const first = page.getByTestId('garden-choice-meadow')
+  await expect(first).toBeVisible()
+  await expect(scene).toHaveAttribute('data-transition', 'idle')
   const canvas = page.locator('canvas')
   const initial = await canvas.screenshot()
   const size = (await first.boundingBox())!

@@ -229,7 +229,8 @@ for (const locale of ['ru', 'en']) {
     const id = new URL(page.url()).searchParams.get('memorial')!
     const dialog = page.getByRole('dialog')
     await expect(dialog).toHaveAccessibleName('Мой друг <Milo>')
-    await expectModestCorners(dialog, 16)
+    // The close-up fills the garden stage rather than adding an inner modal frame.
+    await expect(dialog).toHaveCSS('border-radius', '0px')
     await expectModestCorners(dialog.locator('.memorial-return'))
     await expectModestCorners(dialog.locator('.memorial-close'))
     await expect(dialog.locator('.memorial-location')).toContainText(`${ru ? 'Место' : 'Place'} ${place}`)

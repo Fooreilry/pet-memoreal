@@ -13,17 +13,21 @@ const { fullscreen, toggleFullscreen } = useGardenFullscreen()
 const { seed: authSessionSeed } = useGardenSession()
 const gardenMenuOpen = ref(false)
 const sceneReady = ref(false)
+const detailOpen = ref(false)
 const gardenIcons: Record<GardenId, string> = { meadow: 'i-lucide-flower-2', lake: 'i-lucide-waves', grove: 'i-lucide-trees', hill: 'i-lucide-mountain' }
 const gardenIndex = computed(() => demoGardens.findIndex(garden => garden.id === selected.value?.id))
 const previousGarden = computed(() => demoGardens[(gardenIndex.value + demoGardens.length - 1) % demoGardens.length]!)
 const nextGarden = computed(() => demoGardens[(gardenIndex.value + 1) % demoGardens.length]!)
-const { data: saved, error: loadError, status, refresh: reload } = await useAsyncData('map-memorials', async () => {
+const { data: saved, error: loadError, status, refresh: reload } = await useAsyncData('map-memorials', async (_app, { signal }) => {
   const gardenId = selected.value?.id
-  return { gardenId, memorials: gardenId ? await $fetch<PublicMemorial[]>(`/api/gardens/${gardenId}/memorials`) : [] }
-}, { server: false, default: () => ({ gardenId: undefined, memorials: [] }), watch: [() => selected.value?.id, authSessionSeed] })
+  return { gardenId, memorials: gardenId ? await $fetch<PublicMemorial[]>(`/api/gardens/${gardenId}/memorials`, { signal }) : [] }
+}, { server: false, default: () => ({ gardenId: undefined, memorials: [] }) })
+// Nuxt's option-level watch serializes pending requests. Navigation must cancel
+// the old garden immediately, including its network request, rather than queue.
+watch([() => selected.value?.id, authSessionSeed], () => { void reload({ dedupe: 'cancel' }) }, { flush: 'sync' })
 const focusId = computed(() => typeof route.query.memorial === 'string' ? route.query.memorial : undefined)
 const records = computed(() => (saved.value?.memorials ?? []).filter(item => item.gardenId === selected.value?.id))
-const placesState = computed(() => !selected.value ? 'ready' : loadError.value ? 'error' : status.value === 'success' && saved.value?.gardenId === selected.value.id ? 'ready' : 'loading')
+const placesState = computed(() => !selected.value ? 'ready' : status.value === 'pending' ? 'loading' : loadError.value ? 'error' : status.value === 'success' && saved.value?.gardenId === selected.value.id ? 'ready' : 'loading')
 const heading = ref<HTMLHeadingElement>()
 const title = computed(() => selected.value ? t(`garden.names.${selected.value.id}`) : t('garden.title'))
 useHead({ htmlAttrs: { lang: () => locale.value } })
@@ -39,10 +43,14 @@ async function createAt(place: number) {
   await navigateTo({ path: localePath('/memorials/new'), query: { garden: selected.value.id, place } })
 }
 
+let focusedView: string | undefined
 watch([() => selected.value?.id, sceneReady], async () => {
-  if ((selected.value && !sceneReady.value) || focusId.value) return
+  const view = selected.value?.id ?? 'overview'
+  if (!sceneReady.value || focusId.value || focusedView === view) return
   await nextTick()
+  if (!sceneReady.value || (selected.value?.id ?? 'overview') !== view) return
   heading.value?.focus({ preventScroll: true })
+  focusedView = view
 })
 watch(() => selected.value?.id, (id) => { if (!id) fullscreen.value = false })
 </script>
@@ -55,12 +63,12 @@ watch(() => selected.value?.id, (id) => { if (!id) fullscreen.value = false })
       <h1 v-if="!selected || !sceneReady" ref="heading" class="sr-only" tabindex="-1">{{ title }}</h1>
       <div class="garden-canvas-area">
         <ClientOnly>
-          <GardenCanvas :garden-id="selected?.id" :memorials="records" :places-state="placesState" :focus-id="focusId" :can-create="status === 'success' && !loadError" :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" @select="selectGarden" @create="createAt" @ready="sceneReady = $event" @retry="reload()" />
+          <GardenCanvas :garden-id="selected?.id" :memorials="records" :places-state="placesState" :focus-id="focusId" :can-create="status === 'success' && !loadError" :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" @select="selectGarden" @create="createAt" @ready="sceneReady = $event" @detail="detailOpen = $event" @retry="reload()" />
           <template #fallback><div class="garden-fallback"><GardenLoading :completed="0" phase="opening" /></div></template>
         </ClientOnly>
       </div>
 
-      <div v-if="selected && sceneReady" class="garden-hud">
+      <div v-if="selected && sceneReady && !detailOpen" class="garden-hud">
         <UPopover v-model:open="gardenMenuOpen" :content="{ side: 'bottom', align: 'start', sideOffset: 8 }" :ui="{ content: 'bg-(--surface-panel) rounded-(--panel-radius) ring-1 ring-(--ui-border) shadow-xl' }">
           <button type="button" class="garden-control garden-switch" :aria-label="t('garden.switch')" data-testid="garden-switch"><UIcon name="i-lucide-trees" aria-hidden="true" /><span class="garden-switch-label">{{ t('garden.switch') }}</span><UIcon name="i-lucide-chevron-down" class="garden-switch-chevron" aria-hidden="true" /></button>
           <template #content>

@@ -148,6 +148,98 @@ test('rain has a seconds clock that freezes with the atmosphere and repeats its 
   } finally { atmosphere.destroy() }
 })
 
+test('focus weather stays inside its visual window and reuses pixel bounds after a viewport resize', () => {
+  const atmosphere = createGardenAtmosphere(800, 600, 'meadow')
+  try {
+    const surface = atmosphere.root.children[0] as Graphics
+    const filter = surface.filters![0] as Filter
+    const uniforms = filter.resources.atmosphereUniforms.uniforms
+    const rect = uniforms.uFocusRect
+    const view = uniforms.uView
+    const viewport = uniforms.uViewport
+    const assertRect = (values: number[]) => assert.deepEqual([...rect], [...new Float32Array(values)])
+    assert.equal(uniforms.uFocus, 0)
+    assertRect([0, 0, 1, 1])
+    atmosphere.setView({ x: -25, y: 80, scale: 2 })
+    atmosphere.setFocus(true, { left: 200, top: 60, width: 600, height: 540 })
+    assert.equal(uniforms.uFocus, 1)
+    assertRect([0.25, 0.1, 0.75, 0.9])
+    assert.deepEqual([...view], [-25, 80, 2, 0])
+    atmosphere.resize(400, 300)
+    assert.equal(uniforms.uFocusRect, rect)
+    assert.equal(uniforms.uView, view)
+    assert.equal(uniforms.uViewport, viewport)
+    assertRect([0.5, 0.2, 0.5, 0.8])
+    // The phone's visual area can start at the top instead of beside the story.
+    atmosphere.setFocus(true, { left: 0, top: 0, width: 400, height: 180 })
+    assertRect([0, 0, 1, 0.6])
+    atmosphere.setFocus(false)
+    assert.equal(uniforms.uFocus, 0)
+    assertRect([0, 0, 1, 1])
+    assert.deepEqual([...view], [-25, 80, 2, 0])
+  } finally { atmosphere.destroy() }
+})
+
+test('focus rectangles clamp to the canvas without leaking invalid dimensions into the shader', () => {
+  const atmosphere = createGardenAtmosphere(400, 300, 'hill')
+  try {
+    const uniforms = ((atmosphere.root.children[0] as Graphics).filters![0] as Filter).resources.atmosphereUniforms.uniforms
+    const rect = uniforms.uFocusRect
+    atmosphere.setFocus(true, { left: -100, top: -50, width: 300, height: 200 })
+    assert.deepEqual([...rect], [0, 0, 0.5, 0.5])
+    atmosphere.setFocus(true, { left: 500, top: 400, width: 300, height: 200 })
+    assert.deepEqual([...rect], [1, 1, 0, 0])
+    atmosphere.setFocus(true, { left: Number.NaN, top: Number.POSITIVE_INFINITY, width: -100, height: Number.NaN })
+    assert.deepEqual([...rect], [0, 0, 0, 0])
+    atmosphere.resize(Number.NaN, Number.POSITIVE_INFINITY)
+    assert.ok([...rect].every(value => Number.isFinite(value) && value >= 0 && value <= 1))
+    atmosphere.setFocus(false)
+    assert.deepEqual([...rect], [0, 0, 1, 1])
+  } finally { atmosphere.destroy() }
+})
+
+test('focus profiles share one prepared weather pass and preserve pause, disable and map restoration', () => {
+  const fixture = rendererFixture()
+  const atmosphere = createGardenAtmosphere(1440, 1000, 'lake')
+  try {
+    const surface = atmosphere.root.children[0] as Graphics
+    const filter = surface.filters![0] as Filter
+    const program = filter.glProgram
+    const uniforms = filter.resources.atmosphereUniforms.uniforms
+    const rect = uniforms.uFocusRect
+    const geometry = surface.context
+    assert.equal(atmosphere.prepare(fixture.renderer), true)
+    atmosphere.update(40)
+    for (const garden of gardenIds) {
+      atmosphere.setGarden(garden)
+      atmosphere.setFocus(true, { left: 440, top: 0, width: 1000, height: 1000 })
+      assert.equal(atmosphere.prepare(fixture.renderer), true)
+      assert.equal(atmosphere.root.children.length, 1)
+      assert.equal(surface.filters!.length, 1)
+      assert.equal(surface.filters![0], filter)
+      assert.equal(filter.glProgram, program)
+      assert.equal(uniforms.uFocusRect, rect)
+      assert.equal(surface.context, geometry)
+      assert.equal(surface.context.instructions.length, 1)
+      assert.equal(uniforms.uTime, 1)
+      assert.equal(uniforms.uWeatherTime, 40)
+    }
+    assert.deepEqual(fixture.counts(), { compilations: 1, linkChecks: 1, disposals: 0, resets: 0 })
+    atmosphere.setEnabled(false)
+    atmosphere.setFocus(false)
+    atmosphere.update(80)
+    assert.equal(atmosphere.root.visible, false)
+    assert.equal(uniforms.uTime, 1)
+    assert.equal(uniforms.uWeatherTime, 40)
+    assert.equal(uniforms.uFocus, 0)
+    assert.deepEqual([...rect], [0, 0, 1, 1])
+    atmosphere.setEnabled(true)
+    atmosphere.update(80)
+    assert.equal(uniforms.uTime, 2)
+    assert.equal(uniforms.uWeatherTime, 80)
+  } finally { atmosphere.destroy() }
+})
+
 test('one non-interactive atmospheric pass reuses its geometry and uniforms across themes and time', () => {
   const atmosphere = createGardenAtmosphere(390, 844, 'meadow')
   try {
@@ -217,6 +309,7 @@ test('disposing an atmosphere releases its filter, program and drawing context w
     first.destroy()
     first.resize(640, 480)
     first.setGarden('hill')
+    first.setFocus(true, { left: 100, top: 0, width: 500, height: 400 })
     first.update(120)
     first.setEnabled(true)
     assert.equal(destroyed, 1)

@@ -136,6 +136,15 @@
     "accountNote": "Your stories and memorials are always close at hand in your account."
   },
   "memorial": {
+    "preparing": {
+      "title": "Opening the memorial",
+      "label": "Preparing the memorial",
+      "opening": "Preparing the landscape…",
+      "stories": "Placing the memorial…",
+      "places": "Adding the finishing touches…",
+      "hint": "The story and its surroundings will appear together when ready.",
+      "stages": { "opening": "Landscape", "stories": "Memorial", "places": "First frame" }
+    },
     "creator": "Created by:",
     "anonymous": "Anonymous",
     "inMemory": "With love, always",
@@ -148,6 +157,17 @@
     "edit": "Edit",
     "close": "Close story",
     "back": "Return to the garden",
+    "detail": {
+      "scene": "Memorial in the {garden} garden",
+      "reading": "Your pet's story",
+      "controls": "Memorial atmosphere",
+      "atmospheres": {
+        "meadow": "A sunlit clearing",
+        "lake": "A quiet shore",
+        "grove": "Under the trees",
+        "hill": "Beneath open skies"
+      }
+    },
     "location": "{garden} garden · Place {place}",
     "story": "Our story",
     "favorite": "Favorite things",
@@ -285,6 +305,7 @@
     "preparing": {
       "title": "The garden is waking up",
       "label": "Preparing the garden",
+      "step": "Step {step} of {total}",
       "opening": "Opening the gate…",
       "stories": "Gathering stories…",
       "places": "Preparing the memorials…",
