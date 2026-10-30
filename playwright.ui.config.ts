@@ -8,7 +8,7 @@ export default defineConfig({
   webServer: {
     ...config.webServer,
     url: 'http://127.0.0.1:4174/',
-    env: { ...(config.webServer as { env: Record<string, string> }).env, NITRO_PORT: '4174', BETTER_AUTH_URL: 'http://127.0.0.1:4174' },
+    env: { ...(config.webServer as { env: Record<string, string> }).env, NITRO_PORT: '4174', BETTER_AUTH_URL: 'http://127.0.0.1:4174', NUXT_PUBLIC_GARDEN_DIAGNOSTICS: 'false' },
     reuseExistingServer: false
   },
   use: { ...config.use, baseURL: 'http://127.0.0.1:4174' }

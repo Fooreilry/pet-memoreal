@@ -97,7 +97,7 @@ export function useGardenCamera(viewport: Ref<HTMLElement | undefined>, enabled:
     if (pointers.size > 1) {
       interacting.value = true
       dragging.value = true
-      viewport.value?.setPointerCapture(event.pointerId)
+      if (event.isTrusted) viewport.value?.setPointerCapture(event.pointerId)
     }
   }
 
@@ -112,7 +112,7 @@ export function useGardenCamera(viewport: Ref<HTMLElement | undefined>, enabled:
     }
     if (dragging.value && previous) {
       event.preventDefault()
-      viewport.value?.setPointerCapture(event.pointerId)
+      if (event.isTrusted) viewport.value?.setPointerCapture(event.pointerId)
       pan(next.center.x - previous.center.x, next.center.y - previous.center.y)
       if (pointers.size > 1 && previous.distance > 0) zoomTo(camera.zoom * next.distance / previous.distance, next.center)
       suppressUntil = Date.now() + 500

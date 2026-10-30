@@ -3,6 +3,7 @@ import { demoGardens, findDemoGarden } from '../data/demoGardens'
 import type { GardenId } from '../data/demoGardens'
 import type { PublicMemorial } from '../../shared/memorials'
 import { isCreatablePlace } from '#shared/gardens'
+import { gardenDiagnosticsAllowed } from '../utils/gardenDiagnosticsFlag'
 
 definePageMeta({ middleware: 'legacy-memorial-create', colorMode: 'light' })
 const { t, locale } = useI18n()
@@ -16,14 +17,19 @@ const sceneReady = ref(false)
 const displayedGardenId = ref(selected.value?.id)
 const displayed = computed(() => findDemoGarden(displayedGardenId.value))
 const detailOpen = ref(false)
+const diagnosticsEnabled = gardenDiagnosticsAllowed(useRuntimeConfig().public.gardenDiagnostics)
+let apiRequestId = 0
 const gardenIcons: Record<GardenId, string> = { meadow: 'i-lucide-flower-2', lake: 'i-lucide-waves', grove: 'i-lucide-trees', hill: 'i-lucide-mountain' }
 const gardenIndex = computed(() => demoGardens.findIndex(garden => garden.id === displayedGardenId.value))
 const previousGarden = computed(() => demoGardens[(gardenIndex.value + demoGardens.length - 1) % demoGardens.length]!)
 const nextGarden = computed(() => demoGardens[(gardenIndex.value + 1) % demoGardens.length]!)
 const { data: saved, error: loadError, status, refresh: reload } = await useAsyncData('map-memorials', async (_app, { signal }) => {
   const gardenId = selected.value?.id
-  return { gardenId, memorials: gardenId ? await $fetch<PublicMemorial[]>(`/api/gardens/${gardenId}/memorials`, { signal }) : [] }
-}, { server: false, default: () => ({ gardenId: undefined, memorials: [] }) })
+  const started = diagnosticsEnabled ? performance.now() : 0
+  const requestId = diagnosticsEnabled && gardenId ? ++apiRequestId : undefined
+  const memorials = gardenId ? await $fetch<PublicMemorial[]>(`/api/gardens/${gardenId}/memorials`, { signal }) : []
+  return { gardenId, memorials, apiWaitMs: diagnosticsEnabled && gardenId ? performance.now() - started : 0, apiStartedAt: diagnosticsEnabled && gardenId ? started : undefined, requestId }
+}, { server: false, default: () => ({ gardenId: undefined, memorials: [], apiWaitMs: 0, apiStartedAt: undefined, requestId: undefined }) })
 // Nuxt's option-level watch serializes pending requests. Navigation must cancel
 // the old garden immediately, including its network request, rather than queue.
 watch([() => selected.value?.id, authSessionSeed], () => { void reload({ dedupe: 'cancel' }) }, { flush: 'sync' })
@@ -91,7 +97,7 @@ watch(() => selected.value?.id, (id) => { if (!id) fullscreen.value = false })
       <h1 ref="heading" :class="{ 'garden-title': titleOnMap, 'garden-title-expired': titleOnMap && !titleVisible, 'sr-only': !titleOnMap }" :data-title-visible="titleOnMap && titleVisible" data-testid="garden-title" tabindex="-1">{{ title }}</h1>
       <div class="garden-canvas-area">
         <ClientOnly>
-          <GardenCanvas :garden-id="selected?.id" :memorials="records" :places-state="placesState" :focus-id="focusId" :can-create="status === 'success' && !loadError" :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" @select="selectGarden" @cancel="cancelGarden" @displayed="displayedGardenId = $event" @create="createAt" @ready="sceneReady = $event" @detail="detailOpen = $event" @retry="reload()" />
+          <GardenCanvas :garden-id="selected?.id" :memorials="records" :places-state="placesState" :api-wait-ms="saved?.apiWaitMs" :api-started-at="saved?.apiStartedAt" :api-request-id="saved?.gardenId === selected?.id ? saved?.requestId : undefined" :focus-id="focusId" :can-create="status === 'success' && !loadError" :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" @select="selectGarden" @cancel="cancelGarden" @displayed="displayedGardenId = $event" @create="createAt" @ready="sceneReady = $event" @detail="detailOpen = $event" @retry="reload()" />
           <template #fallback><div class="garden-fallback"><GardenLoading :completed="0" phase="opening" /></div></template>
         </ClientOnly>
       </div>

@@ -9,12 +9,19 @@ export default defineNuxtConfig({
     prerender: { crawlLinks: false }
   },
   devServer: { host: '127.0.0.1', port: 3000 },
+  runtimeConfig: {
+    public: {
+      gardenDiagnostics: false,
+      gardenBuildId: process.env.VERCEL_GIT_COMMIT_SHA || process.env.GARDEN_BUILD_ID || ''
+    }
+  },
   modules: ['@nuxt/ui', '@nuxtjs/i18n', '@nuxt/eslint'],
   icon: {
     clientBundle: {
       icons: [
         ...Object.values(petSpeciesIcons).flatMap(drawing => 'icon' in drawing ? [drawing.icon.replace('i-lucide-', 'lucide:')] : []),
-        'lucide:cloud-rain', 'lucide:sun', 'lucide:sun-medium', 'lucide:cloud-sun'
+        'lucide:cloud-rain', 'lucide:sun', 'lucide:sun-medium', 'lucide:cloud-sun',
+        'lucide:gauge', 'lucide:x', 'lucide:download', 'lucide:rotate-ccw'
       ]
     }
   },

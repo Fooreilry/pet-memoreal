@@ -23,13 +23,32 @@ import { createGardenSceneTransition } from '../utils/gardenSceneTransition'
 import type { GardenTransitionFocus, GardenTransitionTransform, GardenTransitionDirection } from '../utils/gardenSceneTransition'
 import { getGardenSceneFrame } from '../utils/gardenSceneFrame'
 import type { GardenSceneFrame } from '../utils/gardenSceneFrame'
+import { createGardenDiagnostics } from '../utils/gardenDiagnostics'
+import type { GardenDiagnosticContext, GardenDiagnosticMode, GardenDiagnosticSnapshot, GardenDiagnosticsReport } from '../utils/gardenDiagnostics'
+import { createGardenDiagnosticRuns } from '../utils/gardenDiagnosticRuns'
+import type { GardenDiagnosticRunValidator } from '../utils/gardenDiagnosticRuns'
+import { cameraAt, pointerAt, gardenBenchmarkWheelSteps } from '../utils/gardenBenchmarkProtocol'
+import type { GardenBenchmarkRequest } from '../utils/gardenBenchmarkProtocol'
+import { createGardenDiagnosticRunner } from '../utils/gardenDiagnosticRunner'
+import type { GardenDiagnosticRunnerState } from '../utils/gardenDiagnosticRunner'
+import { countGardenResources, observeGardenRenderer } from '../utils/gardenDiagnosticsRuntime'
+import { gardenDiagnosticsAllowed } from '../utils/gardenDiagnosticsFlag'
 
 type SceneTarget = { kind: 'overview' | 'garden' | 'memorial', gardenId?: GardenId, memorialId?: string }
 
-const props = withDefaults(defineProps<{ gardenId?: GardenId, memorials?: PublicMemorial[], placesState?: 'loading' | 'ready' | 'error', focusId?: string, canCreate?: boolean, editing?: boolean, fullscreen?: boolean }>(), { memorials: () => [], placesState: 'ready', focusId: undefined, gardenId: undefined, canCreate: false, editing: false, fullscreen: false })
+const props = withDefaults(defineProps<{ gardenId?: GardenId, memorials?: PublicMemorial[], placesState?: 'loading' | 'ready' | 'error', apiWaitMs?: number, apiStartedAt?: number, apiRequestId?: number, focusId?: string, canCreate?: boolean, editing?: boolean, fullscreen?: boolean }>(), { memorials: () => [], placesState: 'ready', apiWaitMs: 0, apiStartedAt: undefined, apiRequestId: undefined, focusId: undefined, gardenId: undefined, canCreate: false, editing: false, fullscreen: false })
 const emit = defineEmits<{ select: [id: GardenId], create: [place: number], ready: [value: boolean], displayed: [id?: GardenId], cancel: [id?: GardenId], detail: [open: boolean], retry: [], toggleFullscreen: [] }>()
 const { t, locale } = useI18n()
-const { seed: sessionSeed } = useGardenSession()
+const { seed: sessionSeed, cookie: sessionCookie } = useGardenSession()
+const runtime = useRuntimeConfig()
+const diagnosticsEnabled = gardenDiagnosticsAllowed(runtime.public.gardenDiagnostics)
+const diagnosticsMode = ref<GardenDiagnosticMode>(diagnosticsEnabled && useRoute().query.diagnosticsMode === 'collect' ? 'collect' : 'panel')
+const diagnosticsOpen = ref(false)
+const diagnosticsSnapshot = shallowRef<GardenDiagnosticSnapshot>()
+const diagnosticsRecording = ref(false)
+const diagnosticsResults = shallowRef<GardenDiagnosticsReport[]>([])
+const diagnosticRunnerState = shallowRef<GardenDiagnosticRunnerState>({ status: 'idle', scenario: '', repeat: 0, total: 0, completed: 0 })
+const fpsLimit = ref<30 | 60>(diagnosticsEnabled && useRoute().query.diagnosticsFps === '60' ? 60 : 30)
 const host = ref<HTMLDivElement>()
 const viewport = ref<HTMLDivElement>()
 const modalOpen = ref(false)
@@ -116,6 +135,219 @@ const effectsEnabled = ref(true)
 const effectsSupported = ref(true)
 const weather = computed(() => !displayedGarden.value || !effectsEnabled.value || !effectsSupported.value ? 'none' : ({ meadow: 'sun', lake: 'rain', grove: 'canopy', hill: 'clouds' } as const)[displayedGarden.value])
 const moving = computed(() => interactive.value && !paused.value && !reducedMotion.value && (!modalOpen.value || !!detailMemorial.value) && !props.editing && inView.value && visible.value)
+let diagnosticTimer: ReturnType<typeof setInterval> | undefined
+let releaseRendererProbe: (() => void) | undefined
+let diagnosticApi: GardenDiagnosticsApi | undefined
+let manualRenderDepth = 0
+let rebuilds = 0
+let totalChunks = 0
+let diagnosticJourney: { token: number, started: number, preparing?: number, prepared?: number, generationMs: number } | undefined
+let diagnosticLastApiRequest: number | undefined
+let diagnosticRunBoundary = 0
+const diagnostics = diagnosticsEnabled ? createGardenDiagnostics({ now: () => performance.now(), getContext: diagnosticContext, buildId: String(runtime.public.gardenBuildId || '') }) : undefined
+const diagnosticRuns = diagnostics ? createGardenDiagnosticRuns(diagnostics) : undefined
+let diagnosticRunner: ReturnType<typeof createGardenDiagnosticRunner> | undefined
+let restoringDiagnosticState = false
+let diagnosticCameraMotion: { started: number, duration: number } | undefined
+let diagnosticInputMotion: { started: number, duration: number, last: number, wheel: number, down: boolean } | undefined
+const diagnosticMovement = { samples: 0, changes: 0 }
+const diagnosticInteractions = { pointerMoves: 0, wheels: 0 }
+if (diagnostics) diagnostics.setMode(diagnosticsMode.value)
+
+type GardenDiagnosticsApi = {
+  snapshot: () => ReturnType<NonNullable<typeof diagnostics>['snapshot']>
+  report: () => ReturnType<NonNullable<typeof diagnostics>['report']>
+  beginRun: (scenario: string) => string
+  endRun: (reason?: string) => GardenDiagnosticsReport | undefined
+  results: () => GardenDiagnosticsReport[]
+  startCameraMotion: (duration?: number) => void
+  stopCameraMotion: () => void
+  getMotionInfo: () => typeof diagnosticMovement
+  getInteractionInfo: () => typeof diagnosticInteractions
+  setMode: (mode: GardenDiagnosticMode) => void
+  setFpsLimit: (limit: 30 | 60) => void
+  setSeed: (seed: number) => void
+  setEffects: (enabled: boolean) => void
+  setPaused: (paused: boolean) => void
+  camera: (view: { zoom: number, x: number, y: number }) => void
+  navigateGarden: (id: GardenId) => Promise<void>
+  ready: () => boolean
+  download: (runId?: string) => void
+}
+
+function diagnosticContext(): GardenDiagnosticContext {
+  return {
+    garden: activeGarden.value ?? 'overview', seed: sessionSeed.value, zoom: camera.zoom,
+    dpr: window.devicePixelRatio || 1, renderResolution: application?.renderer.resolution ?? Math.min(window.devicePixelRatio || 1, 2),
+    rendererWidth: application?.canvas.width ?? 0, rendererHeight: application?.canvas.height ?? 0,
+    viewport: { width: viewportSize.width, height: viewportSize.height }, fpsLimit: fpsLimit.value,
+    effects: !effectsEnabled.value || !effectsSupported.value || !(displayedGarden.value ?? props.gardenId) ? 'none' : ({ meadow: 'sun', lake: 'rain', grove: 'canopy', hill: 'clouds' } as const)[(displayedGarden.value ?? props.gardenId)!], animation: !visible.value ? 'hidden' : !inView.value ? 'offscreen' : reducedMotion.value ? 'reduced-motion' : moving.value ? 'running' : 'paused',
+    memorialCount: activeGarden.value ? getMemorialLayout(world.value.width, world.value.height, activeGarden.value, displayedRecords.value).places.filter(place => place.memorial).length : 0,
+    chunks: { visible: visibleChunks.value, total: totalChunks }, rebuilds,
+    resources: countGardenResources(application?.stage, retainedFrame ? 1 : 0, atmosphere && effectsEnabled.value && effectsSupported.value ? 1 : 0),
+    browser: navigator.userAgent, panelVisible: diagnosticsOpen.value
+  }
+}
+
+function refreshDiagnostics() {
+  if (!diagnostics) return
+  diagnosticsSnapshot.value = diagnostics.snapshot()
+  diagnosticsRecording.value = diagnostics.recording
+  diagnosticsResults.value = diagnosticRuns!.reports()
+}
+function syncDiagnosticPanel() {
+  clearInterval(diagnosticTimer)
+  diagnosticTimer = undefined
+  if (!diagnostics) return
+  if (diagnosticsOpen.value) refreshDiagnostics()
+  if (diagnosticsMode.value === 'panel' && diagnosticsOpen.value && visible.value) diagnosticTimer = setInterval(refreshDiagnostics, 500)
+}
+function setDiagnosticMode(mode: GardenDiagnosticMode) {
+  if (!diagnostics || (mode !== 'panel' && mode !== 'collect')) return
+  if (diagnosticsMode.value !== mode) changeDiagnosticConditions('mode', () => { diagnosticsMode.value = mode; diagnostics.setMode(mode) })
+  syncDiagnosticPanel()
+}
+function openDiagnosticPanel(open: boolean) {
+  if (!open && diagnosticRunner?.isRunning) diagnosticRunner.cancel()
+  if (diagnosticsOpen.value !== open) changeDiagnosticConditions('panel-visibility', () => { diagnosticsOpen.value = open })
+  syncDiagnosticPanel()
+}
+function setDiagnosticFps(limit: 30 | 60) {
+  if (!diagnostics || (limit !== 30 && limit !== 60)) return
+  if (fpsLimit.value !== limit) changeDiagnosticConditions('fps-limit', () => {
+    fpsLimit.value = limit
+    if (application) application.ticker.maxFPS = limit
+  })
+  refreshDiagnostics()
+}
+function changeDiagnosticConditions(reason: string, apply: () => void) {
+  if (!diagnosticRuns) { apply(); return }
+  diagnosticRuns.change(`conditions:${reason}`, apply)
+  diagnosticJourney = undefined
+  diagnosticRunBoundary = performance.now()
+  rebuilds = 0
+  refreshDiagnostics()
+}
+function beginDiagnosticRun(scenario: string) {
+  if (!diagnosticRuns) return ''
+  const id = diagnosticRuns.start(scenario)
+  diagnosticJourney = undefined
+  diagnosticRunBoundary = performance.now()
+  rebuilds = 0
+  diagnosticMovement.samples = diagnosticMovement.changes = 0
+  diagnosticInteractions.pointerMoves = diagnosticInteractions.wheels = 0
+  refreshDiagnostics()
+  return id
+}
+function endDiagnosticRun(reason = 'manual', validator?: GardenDiagnosticRunValidator) {
+  diagnosticJourney = undefined
+  const report = diagnosticRuns?.stop(reason, validator)
+  refreshDiagnostics()
+  return report
+}
+function exportDiagnostics(runId?: string) {
+  if (!diagnostics) return
+  const report = runId ? diagnosticRuns?.find(runId) : diagnostics.recording ? diagnostics.report() : diagnosticRuns?.reports().at(-1)
+  if (!report) return
+  const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `garden-diagnostics-${report.runId}.json`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function recordGeneration(started: number, kind: string) {
+  if (!diagnostics?.recording) return
+  const duration = performance.now() - started
+  rebuilds++
+  if (diagnosticJourney) diagnosticJourney.generationMs += duration
+  diagnostics.generation(kind, duration)
+}
+
+function setDiagnosticSeed(seed: number) {
+  if (!Number.isInteger(seed) || seed < 1 || seed > 0xffffffff) throw new Error('Invalid diagnostic seed')
+  if (sessionSeed.value !== seed) changeDiagnosticConditions('seed', () => { sessionSeed.value = seed; sessionCookie.value = String(seed) })
+}
+function setDiagnosticEffects(enabled: boolean) {
+  if (effectsEnabled.value !== enabled) changeDiagnosticConditions('effects', () => { effectsEnabled.value = enabled })
+}
+function setDiagnosticCamera(view: { zoom: number, x: number, y: number }) {
+  if (![view.zoom, view.x, view.y].every(Number.isFinite)) throw new Error('Invalid diagnostic camera')
+  zoomTo(view.zoom)
+  const constrain = (position: number, size: number, content: number) => content * camera.zoom <= size
+    ? content * (1 - camera.zoom) / 2
+    : Math.max(size - (size - content) / 2 - content * camera.zoom, Math.min(-(size - content) / 2, position))
+  camera.x = constrain(view.x, viewportSize.width, projection.value.width)
+  camera.y = constrain(view.y, viewportSize.height, projection.value.height)
+}
+function startDiagnosticCamera(duration = 15000) {
+  diagnosticMovement.samples = diagnosticMovement.changes = 0
+  diagnosticCameraMotion = { started: performance.now(), duration }
+}
+function stopDiagnosticInput() {
+  if (diagnosticInputMotion?.down) viewport.value?.dispatchEvent(new PointerEvent('pointerup', { pointerId: 902, pointerType: 'mouse', bubbles: true, button: 0 }))
+  diagnosticInputMotion = undefined
+}
+const diagnosticPointerMove = diagnostics ? (event: PointerEvent) => {
+  const wasDragging = dragging.value
+  pointerMove(event)
+  if (diagnostics.recording && (wasDragging || dragging.value) && event.defaultPrevented) diagnosticInteractions.pointerMoves++
+} : pointerMove
+const diagnosticWheel = diagnostics ? (event: WheelEvent) => {
+  wheel(event)
+  if (diagnostics.recording && event.defaultPrevented) diagnosticInteractions.wheels++
+} : wheel
+
+// Benchmark motion shares the garden ticker; it never owns an additional RAF.
+function updateDiagnosticMotion(now: number) {
+  if (diagnosticCameraMotion) {
+    const motion = diagnosticCameraMotion
+    const next = cameraAt(now - motion.started, motion.duration)
+    const previous = { ...camera }
+    setDiagnosticCamera({ zoom: next.zoom, x: next.x * projection.value.width, y: next.y * projection.value.height })
+    diagnosticMovement.samples++
+    if (previous.zoom !== camera.zoom || previous.x !== camera.x || previous.y !== camera.y) diagnosticMovement.changes++
+    if (now - motion.started >= motion.duration) diagnosticCameraMotion = undefined
+  }
+  const input = diagnosticInputMotion
+  const element = viewport.value
+  if (!input || !element || now - input.last < 1000 / 30) return
+  input.last = now
+  const elapsedMs = now - input.started
+  const position = pointerAt(elapsedMs, input.duration)
+  const box = element.getBoundingClientRect()
+  const options = { pointerId: 902, pointerType: 'mouse', bubbles: true, cancelable: true, button: 0, buttons: 1, clientX: box.left + box.width * position.x, clientY: box.top + box.height * position.y }
+  if (!input.down) { element.dispatchEvent(new PointerEvent('pointerdown', options)); input.down = true }
+  element.dispatchEvent(new PointerEvent('pointermove', options))
+  while (input.wheel < gardenBenchmarkWheelSteps.length && elapsedMs / input.duration >= gardenBenchmarkWheelSteps[input.wheel]!.at) {
+    element.dispatchEvent(new WheelEvent('wheel', { ...options, deltaY: gardenBenchmarkWheelSteps[input.wheel++]!.deltaY }))
+  }
+  if (elapsedMs >= input.duration) stopDiagnosticInput()
+}
+
+async function navigateDiagnosticGarden(id: GardenId) {
+  if (!['meadow', 'lake', 'grove', 'hill'].includes(id)) throw new Error('Invalid diagnostic garden')
+  chooseGarden(id)
+  await nextTick()
+}
+function waitDiagnosticReady(signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const finish = (error?: Error) => { stop?.(); clearTimeout(timer); signal.removeEventListener('abort', abort); if (error) reject(error); else resolve() }
+    const abort = () => finish(new DOMException('Cancelled', 'AbortError'))
+    const timer = setTimeout(() => finish(new Error('Scene readiness timeout')), 30000)
+    signal.addEventListener('abort', abort, { once: true })
+    const ready = () => interactive.value && activeGarden.value === props.gardenId && controller.state.requested?.gardenId === props.gardenId
+    const stop = watch([interactive, activeGarden, () => props.gardenId], () => { if (ready()) finish() }, { flush: 'post' })
+    if (signal.aborted) abort()
+    else if (ready()) finish()
+  })
+}
+function runDiagnosticBenchmark(request: GardenBenchmarkRequest) {
+  if (!diagnostics || !diagnosticRunner || diagnosticRunner.isRunning) return
+  endDiagnosticRun('benchmark-start')
+  void diagnosticRunner.run(request, fpsLimit.value)
+}
 
 watch(interactive, value => emit('ready', value), { immediate: true })
 
@@ -185,6 +417,7 @@ function resizeRenderer(width: number, height: number) {
 }
 
 function revealPrepared(token: number) {
+  if (diagnostics && diagnosticJourney?.token === token) diagnosticJourney.prepared = performance.now()
   if (retainedFrame) retainedFrame.exit = { ...controller.state.transform }
   controller.markPrepared(token, performance.now())
   advanceTransition()
@@ -206,6 +439,16 @@ function publishTransition() {
   else if (current.phase === 'idle') detailState.value = 'none'
   if (current.phase === 'idle' && current.displayed) emit('displayed', current.displayed.gardenId)
   if (current.phase === 'idle') restoringSource = false
+  if (diagnostics && current.phase === 'idle') {
+    const newApiRequest = props.apiRequestId !== undefined && props.apiRequestId !== diagnosticLastApiRequest && current.displayed?.gardenId === props.gardenId
+    const hasApiWait = newApiRequest && (props.apiStartedAt ?? 0) >= diagnosticRunBoundary
+    if (newApiRequest) diagnosticLastApiRequest = props.apiRequestId
+    if (diagnosticJourney?.token === current.token) {
+      const now = performance.now()
+      diagnostics.ready({ kind: current.displayed?.kind ?? 'overview', generationMs: diagnosticJourney.generationMs, preparationMs: diagnosticJourney.preparing === undefined ? 0 : (diagnosticJourney.prepared ?? now) - diagnosticJourney.preparing, apiWaitMs: hasApiWait ? props.apiWaitMs : 0, totalMs: now - diagnosticJourney.started })
+      diagnosticJourney = undefined
+    }
+  }
 }
 
 function advanceTransition() {
@@ -221,6 +464,7 @@ function advanceTransition() {
   }
   current = controller.state
   if (current.canPrepare && controller.beginPreparation(current.token, now)) {
+    if (diagnostics && diagnosticJourney?.token === current.token) diagnosticJourney.preparing = performance.now()
     const token = current.token
     // Keep the cached source above generation until the target's first paint.
     prepareFrame = requestAnimationFrame(() => {
@@ -252,6 +496,9 @@ function advanceTransition() {
 }
 
 function requestScene(target: SceneTarget, focus = focusForGarden(target.gardenId), skipApproach = false) {
+  const diagnosticStarted = diagnostics?.recording ? Math.max(diagnosticRunBoundary, Math.min(performance.now(),
+    sameTarget(controller.state.requested, target) ? diagnosticJourney?.started ?? Infinity : Infinity,
+    props.apiRequestId !== diagnosticLastApiRequest && props.apiRequestId !== undefined && target.gardenId === props.gardenId ? props.apiStartedAt ?? Infinity : Infinity)) : 0
   if (controller.state.phase === 'idle') {
     sourceFocusId = document.activeElement?.getAttribute('data-testid') ?? undefined
     sourceCamera = { ...camera }
@@ -265,7 +512,8 @@ function requestScene(target: SceneTarget, focus = focusForGarden(target.gardenI
   detailRevision++
   application?.stop()
   captureRetainedFrame()
-  controller.request(target, { now: performance.now(), hasFrame: hasFrame.value, reducedMotion: reducedMotion.value, focus, skipApproach, direction: directionFor(target) })
+  const token = controller.request(target, { now: performance.now(), hasFrame: hasFrame.value, reducedMotion: reducedMotion.value, focus, skipApproach, direction: directionFor(target) })
+  if (diagnostics?.recording) diagnosticJourney = { token, started: diagnosticStarted, generationMs: 0 }
   advanceTransition()
 }
 
@@ -335,7 +583,9 @@ function syncDetail(token = controller.state.token) {
   // starts grounded at its final transform behind the retained source frame.
   if (!current()) return
   prepareSafely(() => {
+    const generationStarted = diagnostics?.recording ? performance.now() : 0
     const scene = createGardenMemorialScene(width, height, props.gardenId!, memorial.place, drawingFrame.value.margin)
+    if (diagnostics) recordGeneration(generationStarted, 'memorial')
     detailScene = scene
     detailGeometry.value = { x: scene.monument.x, y: scene.monument.y, scale: scene.monument.scale.x }
     detailSteps.value = 1
@@ -434,7 +684,7 @@ function syncAtmosphere(width = host.value?.clientWidth ?? 0, height = host.valu
 }
 
 function toggleEffects() {
-  effectsEnabled.value = !effectsEnabled.value
+  setDiagnosticEffects(!effectsEnabled.value)
   try { localStorage.setItem('petmemoreal_garden_effects', effectsEnabled.value ? 'on' : 'off') } catch { /* The current visit still keeps the preference when storage is unavailable. */ }
 }
 
@@ -443,6 +693,7 @@ function drawFrame() { paintFrame() }
 function paintFrame(force = false) {
   if (!application || disposed || state.value === 'error') return
   if (!force && (transitionPhase.value === 'approaching' || transitionPhase.value === 'waiting' || transitionPhase.value === 'error')) return
+  if (diagnostics) manualRenderDepth++
   try { application.render() }
   catch (error) {
     // Decorative light is optional; an unsupported filter must not hide the garden.
@@ -451,7 +702,7 @@ function paintFrame(force = false) {
     atmosphere = undefined
     effectsSupported.value = false
     application.render()
-  }
+  } finally { if (diagnostics) manualRenderDepth-- }
 }
 
 function prepareSafely(work: () => void) {
@@ -553,7 +804,11 @@ function updateSurroundings(width: number, height: number) {
 
 function render() {
   if (!host.value || disposed) return
-  Object.assign(viewportSize, { width: host.value.clientWidth, height: host.value.clientHeight })
+  const size = { width: host.value.clientWidth, height: host.value.clientHeight }
+  if (diagnostics?.recording && (size.width !== viewportSize.width || size.height !== viewportSize.height)) {
+    if (diagnosticRunner?.isRunning) diagnosticRunner.cancel('conditions:viewport')
+    changeDiagnosticConditions('viewport', () => Object.assign(viewportSize, size))
+  } else Object.assign(viewportSize, size)
   if (!application || state.value === 'error') return
   if (controller.state.phase !== 'idle') { prepareSafely(() => resizeRenderer(host.value!.clientWidth, host.value!.clientHeight)); advanceTransition(); return }
   if (!dataReady.value && rendered?.gardenId === props.gardenId) return
@@ -595,6 +850,7 @@ function renderScene() {
     return
   }
   disposeDetail()
+  const generationStarted = diagnostics?.recording ? performance.now() : 0
   const scene = createGardenScene(worldW, worldH, findDemoGarden(props.gardenId), t, props.memorials)
   for (const child of application.stage.removeChildren()) {
     if (child !== surroundings && child !== atmosphere?.root && child !== retainedFrame?.sprite) child.destroy({ children: true, context: true })
@@ -609,6 +865,7 @@ function renderScene() {
   animate = scene.update
   scene.update(elapsed)
   syncAtmosphere(width, height)
+  if (diagnostics) { totalChunks = scene.totalChunks; recordGeneration(generationStarted, props.gardenId ? 'garden' : 'overview') }
   // Warm every memorial's cached artwork before viewport culling and revealing
   // the canvas. Loading covers both network data and the first rendered frame.
   drawFrame()
@@ -634,6 +891,8 @@ async function start() {
   const currentAttempt = ++attempt
   observer?.disconnect()
   if (application) {
+    releaseRendererProbe?.()
+    releaseRendererProbe = undefined
     disposeRetainedFrame()
     disposeDetail()
     atmosphere?.destroy()
@@ -658,21 +917,27 @@ async function start() {
       return
     }
     application = app
+    if (diagnostics) releaseRendererProbe = observeGardenRenderer(app, diagnostics, () => moving.value, () => manualRenderDepth > 0)
     app.canvas.setAttribute('role', 'img')
     host.value!.appendChild(app.canvas)
     intersection?.observe(host.value!)
-    app.ticker.maxFPS = 30
+    app.ticker.maxFPS = fpsLimit.value
     app.ticker.add((ticker) => {
+      const tickStarted = diagnostics?.recording ? performance.now() : 0
+      if (diagnosticCameraMotion || diagnosticInputMotion) updateDiagnosticMotion(performance.now())
       elapsed += Math.min(ticker.deltaMS, 100) / 1000
       if (detailScene) detailScene.update(elapsed)
       else animate?.(elapsed)
       if (effectsEnabled.value) atmosphere?.update(elapsed)
+      if (diagnostics?.recording) diagnostics.tick(tickStarted, performance.now() - tickStarted)
     })
     observer = new ResizeObserver(render)
     observer.observe(host.value!)
     state.value = 'ready'
     render()
   } catch {
+    releaseRendererProbe?.()
+    releaseRendererProbe = undefined
     if (app.renderer) app.destroy({ removeView: true }, { children: true, context: true })
     application = undefined
     rendered = undefined
@@ -700,9 +965,20 @@ watch(() => props.memorials, () => {
   else render()
 })
 watch(() => props.placesState, render)
-watch(sessionSeed, () => { modalOpen.value = false; requestScene(mapTarget(), undefined, true) })
+watch(sessionSeed, () => {
+  if (diagnostics?.recording && diagnostics.snapshot().configuration?.seed !== sessionSeed.value) changeDiagnosticConditions('seed', () => {})
+  modalOpen.value = false
+  requestScene(mapTarget(), undefined, true)
+})
 watch(camera, applyCamera, { flush: 'sync' })
 watch(moving, syncMotion)
+if (diagnostics) {
+  watch(moving, value => diagnostics.setActive(value), { flush: 'sync', immediate: true })
+  watch(visible, syncDiagnosticPanel)
+  watch([visible, inView, reducedMotion, paused], () => {
+    if (!restoringDiagnosticState && diagnosticRunner?.isRunning && (!visible.value || !inView.value || reducedMotion.value || paused.value)) diagnosticRunner.cancel('conditions-changed')
+  })
+}
 watch(effectsEnabled, () => { syncAtmosphere(); drawFrame() })
 watch(reducedMotion, value => { controller.setReducedMotion(value, performance.now()); advanceTransition() })
 watch([reducedMotion, visible, inView], () => {
@@ -710,6 +986,56 @@ watch([reducedMotion, visible, inView], () => {
 })
 onMounted(() => {
   try { effectsEnabled.value = localStorage.getItem('petmemoreal_garden_effects') !== 'off' } catch { /* Use the default without requiring browser storage. */ }
+  if (diagnostics) {
+    if (host.value) Object.assign(viewportSize, { width: host.value.clientWidth, height: host.value.clientHeight })
+    diagnosticRunner = createGardenDiagnosticRunner({
+      getGarden: () => props.gardenId,
+      navigate: navigateDiagnosticGarden, waitReady: waitDiagnosticReady,
+      configure: settings => {
+        setDiagnosticMode(settings.mode)
+        setDiagnosticFps(settings.fpsLimit)
+        setDiagnosticSeed(settings.seed)
+        setDiagnosticEffects(settings.effects)
+        paused.value = false
+        setDiagnosticCamera({ zoom: 1, x: 0, y: 0 })
+      },
+      begin: beginDiagnosticRun, end: endDiagnosticRun, snapshot: () => diagnostics.snapshot(),
+      startCamera: startDiagnosticCamera, stopCamera: () => { diagnosticCameraMotion = undefined }, motionInfo: () => ({ ...diagnosticMovement }),
+      startInput: duration => { diagnosticInputMotion = { started: performance.now(), duration, last: 0, wheel: 0, down: false } },
+      stopInput: stopDiagnosticInput, inputInfo: () => ({ ...diagnosticInteractions }),
+      saveState: () => ({ garden: props.gardenId, seed: sessionSeed.value, fpsLimit: fpsLimit.value, effects: effectsEnabled.value, mode: diagnosticsMode.value, paused: paused.value, camera: { ...camera } }),
+      restoreState: async value => {
+        if (disposed) return
+        restoringDiagnosticState = true
+        try {
+          const saved = value as { garden?: GardenId, seed: number, fpsLimit: 30 | 60, effects: boolean, mode: GardenDiagnosticMode, paused: boolean, camera: typeof camera }
+          setDiagnosticMode(saved.mode); setDiagnosticFps(saved.fpsLimit); setDiagnosticSeed(saved.seed); setDiagnosticEffects(saved.effects)
+          if (saved.garden) await navigateDiagnosticGarden(saved.garden)
+          await nextTick()
+          await waitDiagnosticReady(new AbortController().signal)
+          setDiagnosticCamera(saved.camera)
+          paused.value = saved.paused
+        } finally { restoringDiagnosticState = false }
+      },
+      publish: progress => { diagnosticRunnerState.value = progress; refreshDiagnostics() }
+    })
+    diagnosticApi = {
+      snapshot: () => diagnostics.snapshot(), report: () => diagnostics.report(), beginRun: beginDiagnosticRun,
+      endRun: endDiagnosticRun, results: () => diagnosticRuns!.reports(),
+      startCameraMotion: startDiagnosticCamera, stopCameraMotion: () => { diagnosticCameraMotion = undefined }, getMotionInfo: () => ({ ...diagnosticMovement }), getInteractionInfo: () => ({ ...diagnosticInteractions }),
+      setMode: setDiagnosticMode, setFpsLimit: setDiagnosticFps,
+      setSeed: setDiagnosticSeed,
+      setEffects: setDiagnosticEffects,
+      setPaused: (value) => { paused.value = !!value },
+      camera: setDiagnosticCamera,
+      navigateGarden: navigateDiagnosticGarden,
+      ready: () => interactive.value,
+      download: exportDiagnostics
+    }
+    const diagnosticTarget = window as Window & { __gardenDiagnostics?: GardenDiagnosticsApi }
+    diagnosticTarget.__gardenDiagnostics = diagnosticApi
+    if (useRoute().query.diagnosticsAutoStart === '1') beginDiagnosticRun(String(useRoute().query.diagnosticsScenario || 'automation'))
+  }
   motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
   readMotion()
   readVisibility()
@@ -733,6 +1059,16 @@ onBeforeUnmount(() => {
   cancelAnimationFrame(prepareFrame)
   cancelAnimationFrame(transitionFrame)
   clearTimeout(loaderTimer)
+  if (diagnostics) {
+    diagnosticRunner?.cancel()
+    diagnosticCameraMotion = undefined
+    stopDiagnosticInput()
+    clearInterval(diagnosticTimer)
+    releaseRendererProbe?.()
+    diagnostics.dispose()
+    const target = window as Window & { __gardenDiagnostics?: GardenDiagnosticsApi }
+    if (target.__gardenDiagnostics === diagnosticApi) delete target.__gardenDiagnostics
+  }
   disposeDetail()
   disposeRetainedFrame()
   animate = undefined
@@ -755,6 +1091,8 @@ onBeforeUnmount(() => {
     class="canvas-wrapper"
     :class="{ 'camera-enabled': gardenId && !detailMemorial && interactive, 'camera-dragging': dragging && !detailMemorial }"
     :data-state="viewState"
+    :data-diagnostics="diagnosticsEnabled ? diagnosticsMode : 'disabled'"
+    :data-fps-limit="fpsLimit"
     :data-transition="transitionPhase"
     :data-transition-direction="transition.direction"
     :data-retained-frame="snapshotReady"
@@ -803,12 +1141,12 @@ onBeforeUnmount(() => {
     :aria-label="gardenId ? t('garden.camera.label') : undefined"
     :aria-describedby="gardenId ? 'garden-camera-help' : undefined"
     @pointerdown.capture="pointerDown"
-    @pointermove.capture="pointerMove"
+    @pointermove.capture="diagnosticPointerMove"
     @pointerup.capture="pointerUp"
     @pointercancel.capture="pointerUp"
     @lostpointercapture.self="pointerUp"
     @click.capture="clickCapture"
-    @wheel="wheel"
+    @wheel="diagnosticWheel"
     @keydown="keydown"
   >
     <div ref="host" class="canvas-host" :class="{ 'canvas-hidden': !hasFrame }" :style="presentationStyle" />
@@ -859,7 +1197,7 @@ onBeforeUnmount(() => {
       <button v-if="hasFrame" type="button" class="scene-cancel" data-testid="scene-cancel" @click="cancelTransition">{{ t(returningFromMemorial ? 'garden.skipTransition' : 'garden.cancelTransition') }}<UIcon name="i-lucide-arrow-left" aria-hidden="true" /></button>
     </div>
   </div>
-  <div v-if="gardenId && !detailMemorial && (interactive || fullscreen)" class="camera-toolbar" :class="{ 'camera-toolbar-loading': !interactive }" role="group" :aria-label="t('garden.camera.controls')">
+  <div v-if="gardenId && !detailMemorial && (interactive || fullscreen || diagnosticsEnabled)" class="camera-toolbar" :class="{ 'camera-toolbar-loading': !interactive }" role="group" :aria-label="t('garden.camera.controls')">
     <div v-if="interactive" class="camera-zoom-group" role="group" :aria-label="t('garden.camera.scale')">
       <button type="button" :aria-label="t('garden.camera.out')" :title="t('garden.camera.out')" :disabled="camera.zoom <= 1 || editing || modalOpen" data-testid="garden-zoom-out" @click="zoomTo(camera.zoom / 1.25)"><UIcon name="i-lucide-minus" aria-hidden="true" /></button>
       <output :aria-label="t('garden.camera.scale')">{{ Math.round(camera.zoom * 100) }}%</output>
@@ -868,6 +1206,7 @@ onBeforeUnmount(() => {
     <div class="camera-tools-group">
       <button v-if="interactive" type="button" :aria-label="t('garden.camera.reset')" :title="t('garden.camera.reset')" :disabled="editing || modalOpen" data-testid="garden-camera-reset" @click="reset"><UIcon name="i-lucide-rotate-ccw" aria-hidden="true" /></button>
       <button type="button" :aria-label="t(fullscreen ? 'garden.camera.exitFullscreen' : 'garden.camera.fullscreen')" :title="t(fullscreen ? 'garden.camera.exitFullscreen' : 'garden.camera.fullscreen')" :aria-pressed="fullscreen" data-testid="garden-fullscreen" @click="emit('toggleFullscreen')"><UIcon :name="fullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'" aria-hidden="true" /></button>
+      <GardenDiagnostics v-if="diagnosticsEnabled" :snapshot="diagnosticsSnapshot" :mode="diagnosticsMode" :fps-limit="fpsLimit" :recording="diagnosticsRecording" :runner="diagnosticRunnerState" :results="diagnosticsResults" @open="openDiagnosticPanel" @mode="setDiagnosticMode" @fps="setDiagnosticFps" @start="beginDiagnosticRun" @stop="endDiagnosticRun()" @benchmark="runDiagnosticBenchmark" @cancel-benchmark="diagnosticRunner?.cancel()" @export="exportDiagnostics" />
       <template v-if="interactive">
         <button type="button" :aria-pressed="effectsEnabled && effectsSupported" :aria-label="t(!effectsSupported ? 'garden.effects.unavailable' : effectsEnabled ? 'garden.effects.disable' : 'garden.effects.enable')" :title="t(!effectsSupported ? 'garden.effects.unavailable' : effectsEnabled ? 'garden.effects.disable' : 'garden.effects.enable')" :disabled="!effectsSupported" :class="{ 'effects-active': effectsEnabled && effectsSupported }" data-testid="garden-effects" @click="toggleEffects"><UIcon :name="gardenId === 'lake' ? 'i-lucide-cloud-rain' : gardenId === 'meadow' ? 'i-lucide-sun' : gardenId === 'grove' ? 'i-lucide-sun-medium' : 'i-lucide-cloud-sun'" aria-hidden="true" /></button>
         <button v-if="!reducedMotion" type="button" :aria-pressed="paused" :aria-label="t(paused ? 'garden.resumeMotion' : 'garden.pauseMotion')" :title="t(paused ? 'garden.resumeMotion' : 'garden.pauseMotion')" data-testid="garden-motion" @click="paused = !paused"><UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" aria-hidden="true" /></button>

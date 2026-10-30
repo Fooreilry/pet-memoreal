@@ -209,5 +209,5 @@ export function createGardenScene(width: number, height: number, garden: Garden 
     }
     return pending
   }
-  return { root, update, updateVisibility, highlightOverview, advanceOverview }
+  return { root, update, updateVisibility, highlightOverview, advanceOverview, totalChunks: chunks.length }
 }
