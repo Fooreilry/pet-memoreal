@@ -21,12 +21,12 @@ async function chooseGarden(page: Page, id: typeof gardens[number]) {
 
 async function sceneryFrame(page: Page) {
   // A changed toggle must not count as proof that the WebGL scenery changed.
-  // Mask just the toolbar, retaining the actual rendered garden and light.
-  return page.locator('canvas').screenshot({ mask: [page.locator('.camera-toolbar')], animations: 'disabled' })
+  // Exclude controls and the independently fading title, retaining the scenery.
+  return page.locator('.canvas-wrapper').screenshot({ mask: [page.locator('.camera-toolbar'), page.getByTestId('garden-title')], animations: 'disabled' })
 }
 
 async function rainGroundFrame(page: Page) {
-  const frame = await page.locator('canvas').screenshot({ scale: 'css', animations: 'disabled' })
+  const frame = await page.locator('.canvas-wrapper').screenshot({ mask: [page.locator('.camera-toolbar'), page.getByTestId('garden-title')], scale: 'css', animations: 'disabled' })
   const metadata = await sharp(frame).metadata()
   // Both ponds are on the right. This left-hand ground patch also avoids the
   // title, switcher and camera panel, so only rendered weather can dominate it.
@@ -83,7 +83,7 @@ for (const locale of ['ru', 'en']) {
       await expect(toggle).toHaveAttribute('title', offLabel)
       await expect(toggle).toBeInViewport()
       const on = await sceneryFrame(page)
-      await page.locator('canvas').screenshot({ path: testInfo.outputPath(`${garden}-atmosphere.png`), animations: 'disabled' })
+      await page.locator('.canvas-wrapper').screenshot({ path: testInfo.outputPath(`${garden}-atmosphere.png`), animations: 'disabled' })
 
       await toggle.click()
       await expect(scene).toHaveAttribute('data-effects', 'off')
@@ -92,7 +92,7 @@ for (const locale of ['ru', 'en']) {
       await expect(toggle).toHaveAccessibleName(onLabel)
       await expect.poll(async () => Buffer.compare(on, await sceneryFrame(page))).not.toBe(0)
       const plain = await sceneryFrame(page)
-      await page.locator('canvas').screenshot({ path: testInfo.outputPath(`${garden}-plain.png`), animations: 'disabled' })
+      await page.locator('.canvas-wrapper').screenshot({ path: testInfo.outputPath(`${garden}-plain.png`), animations: 'disabled' })
 
       await toggle.click()
       await expect(scene).toHaveAttribute('data-effects', 'on')
@@ -168,7 +168,7 @@ test('lake rain is visibly animated over the ground and respects reduced motion,
   const stopped = await sceneryFrame(page)
   await page.waitForTimeout(250)
   expect(Buffer.compare(stopped, await sceneryFrame(page))).toBe(0)
-  await page.locator('canvas').screenshot({ path: testInfo.outputPath('lake-rain.png'), animations: 'disabled' })
+  await page.locator('.canvas-wrapper').screenshot({ path: testInfo.outputPath('lake-rain.png'), animations: 'disabled' })
 
   await effects.click()
   await motion.click()
@@ -297,7 +297,7 @@ for (const failure of ['reload', 'enable'] as const) {
     await expect(help).toBeFocused()
     // A failed filter must restore the default framebuffer, not just hide its UI.
     await expect.poll(async () => Buffer.compare(plain, await sceneryFrame(page))).toBe(0)
-    await page.locator('canvas').screenshot({ path: testInfo.outputPath(`shader-${failure}-fallback.png`), animations: 'disabled' })
+    await page.locator('.canvas-wrapper').screenshot({ path: testInfo.outputPath(`shader-${failure}-fallback.png`), animations: 'disabled' })
 
     await page.getByTestId('garden-zoom-in').click()
     await expect(page.locator('.camera-toolbar output')).toHaveText('125%')

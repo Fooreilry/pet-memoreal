@@ -13,9 +13,11 @@ const { fullscreen, toggleFullscreen } = useGardenFullscreen()
 const { seed: authSessionSeed } = useGardenSession()
 const gardenMenuOpen = ref(false)
 const sceneReady = ref(false)
+const displayedGardenId = ref(selected.value?.id)
+const displayed = computed(() => findDemoGarden(displayedGardenId.value))
 const detailOpen = ref(false)
 const gardenIcons: Record<GardenId, string> = { meadow: 'i-lucide-flower-2', lake: 'i-lucide-waves', grove: 'i-lucide-trees', hill: 'i-lucide-mountain' }
-const gardenIndex = computed(() => demoGardens.findIndex(garden => garden.id === selected.value?.id))
+const gardenIndex = computed(() => demoGardens.findIndex(garden => garden.id === displayedGardenId.value))
 const previousGarden = computed(() => demoGardens[(gardenIndex.value + demoGardens.length - 1) % demoGardens.length]!)
 const nextGarden = computed(() => demoGardens[(gardenIndex.value + 1) % demoGardens.length]!)
 const { data: saved, error: loadError, status, refresh: reload } = await useAsyncData('map-memorials', async (_app, { signal }) => {
@@ -29,13 +31,39 @@ const focusId = computed(() => typeof route.query.memorial === 'string' ? route.
 const records = computed(() => (saved.value?.memorials ?? []).filter(item => item.gardenId === selected.value?.id))
 const placesState = computed(() => !selected.value ? 'ready' : status.value === 'pending' ? 'loading' : loadError.value ? 'error' : status.value === 'success' && saved.value?.gardenId === selected.value.id ? 'ready' : 'loading')
 const heading = ref<HTMLHeadingElement>()
-const title = computed(() => selected.value ? t(`garden.names.${selected.value.id}`) : t('garden.title'))
+const title = computed(() => (sceneReady.value ? displayed.value : selected.value) ? t(`garden.names.${(sceneReady.value ? displayed.value : selected.value)!.id}`) : t('garden.title'))
+const titleVisible = ref(false)
+const titleOnMap = computed(() => !!displayed.value && sceneReady.value && !detailOpen.value)
+let titleGarden: GardenId | undefined
+let titleTimer: ReturnType<typeof setTimeout> | undefined
+watch([displayedGardenId, sceneReady, detailOpen], ([id, ready, detail]) => {
+  // Only a committed, interactive garden starts a new title interval. Returning
+  // from a story or cancelling to the same source must not restart its timer.
+  if (!ready || detail || id === titleGarden) return
+  clearTimeout(titleTimer)
+  titleGarden = id
+  titleVisible.value = !!id
+  if (id) titleTimer = setTimeout(() => { titleVisible.value = false }, 3000)
+})
+onBeforeUnmount(() => { clearTimeout(titleTimer) })
 useHead({ htmlAttrs: { lang: () => locale.value } })
 useSeoMeta({ title: () => `${title.value} — PetMemoreal`, description: () => t('garden.description') })
 
 async function selectGarden(id: GardenId) {
   gardenMenuOpen.value = false
-  await navigateTo({ path: localePath('/gardens'), query: { garden: id } })
+  await navigateTo(gardenLink(id))
+}
+
+function gardenLink(id?: GardenId) {
+  const query = { ...route.query }
+  delete query.memorial
+  if (id) query.garden = id
+  else delete query.garden
+  return { path: localePath('/gardens'), query }
+}
+
+async function cancelGarden(id?: GardenId) {
+  await navigateTo(gardenLink(id), { replace: true })
 }
 
 async function createAt(place: number) {
@@ -60,15 +88,15 @@ watch(() => selected.value?.id, (id) => { if (!id) fullscreen.value = false })
     <a href="#garden-main" class="skip-link">{{ t('nav.skip') }}</a>
     <GardenHeader v-show="!fullscreen" />
     <main id="garden-main" class="garden-stage" tabindex="-1">
-      <h1 v-if="!selected || !sceneReady" ref="heading" class="sr-only" tabindex="-1">{{ title }}</h1>
+      <h1 ref="heading" :class="{ 'garden-title': titleOnMap, 'garden-title-expired': titleOnMap && !titleVisible, 'sr-only': !titleOnMap }" :data-title-visible="titleOnMap && titleVisible" data-testid="garden-title" tabindex="-1">{{ title }}</h1>
       <div class="garden-canvas-area">
         <ClientOnly>
-          <GardenCanvas :garden-id="selected?.id" :memorials="records" :places-state="placesState" :focus-id="focusId" :can-create="status === 'success' && !loadError" :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" @select="selectGarden" @create="createAt" @ready="sceneReady = $event" @detail="detailOpen = $event" @retry="reload()" />
+          <GardenCanvas :garden-id="selected?.id" :memorials="records" :places-state="placesState" :focus-id="focusId" :can-create="status === 'success' && !loadError" :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" @select="selectGarden" @cancel="cancelGarden" @displayed="displayedGardenId = $event" @create="createAt" @ready="sceneReady = $event" @detail="detailOpen = $event" @retry="reload()" />
           <template #fallback><div class="garden-fallback"><GardenLoading :completed="0" phase="opening" /></div></template>
         </ClientOnly>
       </div>
 
-      <div v-if="selected && sceneReady && !detailOpen" class="garden-hud">
+      <div v-if="displayed && sceneReady && !detailOpen" class="garden-hud">
         <UPopover v-model:open="gardenMenuOpen" :content="{ side: 'bottom', align: 'start', sideOffset: 8 }" :ui="{ content: 'bg-(--surface-panel) rounded-(--panel-radius) ring-1 ring-(--ui-border) shadow-xl' }">
           <button type="button" class="garden-control garden-switch" :aria-label="t('garden.switch')" data-testid="garden-switch"><UIcon name="i-lucide-trees" aria-hidden="true" /><span class="garden-switch-label">{{ t('garden.switch') }}</span><UIcon name="i-lucide-chevron-down" class="garden-switch-chevron" aria-hidden="true" /></button>
           <template #content>
@@ -82,20 +110,19 @@ watch(() => selected.value?.id, (id) => { if (!id) fullscreen.value = false })
                 </button>
               </nav>
               <div class="garden-menu-links">
-                <NuxtLink :to="localePath('/gardens')" data-testid="garden-overview" @click="gardenMenuOpen = false"><UIcon name="i-lucide-layout-grid" aria-hidden="true" />{{ t('garden.back') }}</NuxtLink>
+                <NuxtLink :to="gardenLink()" data-testid="garden-overview" @click="gardenMenuOpen = false"><UIcon name="i-lucide-layout-grid" aria-hidden="true" />{{ t('garden.back') }}</NuxtLink>
               </div>
             </div>
           </template>
         </UPopover>
 
-        <h1 ref="heading" class="garden-title" tabindex="-1">{{ title }}</h1>
         <nav class="garden-paths" :aria-label="t('garden.navigation.label')">
-          <NuxtLink class="garden-control garden-path" :to="{ path: localePath('/gardens'), query: { garden: previousGarden.id } }" :aria-label="t('garden.previous', { name: t(`garden.names.${previousGarden.id}`) })" data-testid="garden-previous">
+          <NuxtLink class="garden-control garden-path" :to="gardenLink(previousGarden.id)" :aria-label="t('garden.previous', { name: t(`garden.names.${previousGarden.id}`) })" data-testid="garden-previous">
             <UIcon name="i-lucide-arrow-left" aria-hidden="true" />
-            <span class="garden-path-copy"><span class="garden-path-label">{{ t('garden.navigation.previous') }}</span><span>{{ t(`garden.names.${previousGarden.id}`) }}</span></span>
+            <span class="garden-path-copy"><span>{{ t(`garden.names.${previousGarden.id}`) }}</span></span>
           </NuxtLink>
-          <NuxtLink class="garden-control garden-path garden-path-next" :to="{ path: localePath('/gardens'), query: { garden: nextGarden.id } }" :aria-label="t('garden.next', { name: t(`garden.names.${nextGarden.id}`) })" data-testid="garden-next">
-            <span class="garden-path-copy"><span class="garden-path-label">{{ t('garden.navigation.next') }}</span><span>{{ t(`garden.names.${nextGarden.id}`) }}</span></span>
+          <NuxtLink class="garden-control garden-path garden-path-next" :to="gardenLink(nextGarden.id)" :aria-label="t('garden.next', { name: t(`garden.names.${nextGarden.id}`) })" data-testid="garden-next">
+            <span class="garden-path-copy"><span>{{ t(`garden.names.${nextGarden.id}`) }}</span></span>
             <UIcon name="i-lucide-arrow-right" aria-hidden="true" />
           </NuxtLink>
         </nav>
@@ -119,7 +146,8 @@ watch(() => selected.value?.id, (id) => { if (!id) fullscreen.value = false })
 .garden-control > .iconify { width: 20px; height: 20px; flex-shrink: 0; }
 .garden-switch { position: absolute; top: calc(20px + env(safe-area-inset-top)); left: calc(20px + env(safe-area-inset-left)); font-size: 13px; }
 .garden-switch-chevron { width: 15px !important; }
-.garden-title { position: absolute; left: 50%; top: calc(20px + env(safe-area-inset-top)); transform: translateX(-50%); max-width: calc(100% - 350px); margin: 0; padding: 10px 24px; border: 1px solid var(--garden-control-border); border-radius: var(--control-radius); color: var(--garden-control-text); background: var(--garden-control-bg); font: 400 28px/1.1 var(--font-display); text-align: center; }
+.garden-title { position: absolute; z-index: 2; left: 50%; top: calc(20px + env(safe-area-inset-top)); transform: translateX(-50%); max-width: calc(100% - 350px); margin: 0; padding: 10px 24px; border: 1px solid var(--garden-control-border); border-radius: var(--control-radius); color: var(--garden-control-text); background: var(--garden-control-bg); font: 400 28px/1.1 var(--font-display); text-align: center; pointer-events: none; opacity: 1; transition: opacity 150ms ease-out; }
+.garden-title-expired { opacity: 0; }
 .garden-title:focus { outline: none; }
 .garden-paths { position: absolute; left: calc(20px + env(safe-area-inset-left)); right: calc(20px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); display: flex; justify-content: space-between; gap: 16px; }
 .garden-path { justify-content: flex-start; max-width: calc(50% - 8px); min-width: 140px; min-height: 60px; font-size: 15px; }
@@ -151,4 +179,5 @@ watch(() => selected.value?.id, (id) => { if (!id) fullscreen.value = false })
   .garden-path { min-width: 116px; min-height: 56px; padding: 8px 12px; font-size: 14px; }
 }
 @media (max-height: 450px) { .garden-title { font-size: 23px; } .garden-paths { bottom: calc(12px + env(safe-area-inset-bottom)); } .garden-path { min-height: 44px; padding-block: 6px; } .garden-path-label { display: none; } }
+@media (prefers-reduced-motion: reduce) { .garden-title { transition: none; } }
 </style>

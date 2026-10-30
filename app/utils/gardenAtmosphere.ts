@@ -7,6 +7,7 @@ const themes: Record<GardenId, number> = { meadow: 0, lake: 1, grove: 2, hill: 3
 type ProgramData = ReturnType<WebGLRenderer['shader']['_getProgramData']>
 type PreparedProgram = { renderer: WebGLRenderer, gl: WebGLRenderer['gl'], data: ProgramData, supported: boolean }
 type FocusRect = { left: number, top: number, width: number, height: number }
+type Overscan = { x: number, y: number }
 // Pixi 8.21 exposes compilation but not per-program removal. Keep its internal
 // cache access confined here; this filter owns its unique named program/key.
 type ShaderProgramCache = {
@@ -23,7 +24,7 @@ export function gardenAtmosphereResolution(width: number, height: number) {
 
 const vertex = `#version 300 es
 in vec2 aPosition;
-out vec2 vUv;
+out highp vec2 vUv;
 uniform vec4 uOutputFrame;
 uniform vec4 uOutputTexture;
 
@@ -37,7 +38,7 @@ void main() {
 
 const fragment = `#version 300 es
 precision mediump float;
-in vec2 vUv;
+in highp vec2 vUv;
 out vec4 finalColor;
 uniform float uTime;
 uniform float uTheme;
@@ -45,7 +46,8 @@ uniform float uAspect;
 uniform float uFocus;
 uniform highp vec4 uFocusRect;
 uniform highp float uWeatherTime;
-uniform vec2 uViewport;
+uniform highp vec2 uViewport;
+uniform highp vec4 uSurface;
 uniform vec4 uView;
 uniform vec4 uPond0;
 uniform vec4 uPond1;
@@ -92,13 +94,26 @@ float waterRipples(vec2 world, vec4 pond) {
 }
 
 void main() {
+  // The renderer includes an overscan border, while weather remains anchored
+  // to the unchanged logical viewport and its world-space camera.
+  highp vec2 logicalUv = vUv;
+  if (uSurface.z > 0.0 || uSurface.w > 0.0) {
+    logicalUv = (vUv * uSurface.xy - uSurface.zw) / uViewport;
+  }
   // Focus light belongs to the illustrated window, including on portrait phones.
-  vec2 sceneUv = vUv;
+  vec2 sceneUv = logicalUv;
   float sceneAspect = uAspect;
   if (uFocus > 0.5) {
-    sceneUv = (vUv - uFocusRect.xy) / max(uFocusRect.zw, vec2(0.0001));
+    vec2 focusMin = uFocusRect.xy;
+    vec2 focusMax = uFocusRect.xy + uFocusRect.zw;
+    vec2 margin = uSurface.zw / uViewport;
+    if (focusMin.x <= 0.0) focusMin.x = -margin.x;
+    if (focusMin.y <= 0.0) focusMin.y = -margin.y;
+    if (focusMax.x >= 0.99999) focusMax.x = 1.0 + margin.x;
+    if (focusMax.y >= 0.99999) focusMax.y = 1.0 + margin.y;
+    sceneUv = (logicalUv - uFocusRect.xy) / max(uFocusRect.zw, vec2(0.0001));
     if (uFocusRect.z <= 0.0 || uFocusRect.w <= 0.0
-      || any(lessThan(sceneUv, vec2(0.0))) || any(greaterThan(sceneUv, vec2(1.0)))) {
+      || any(lessThan(logicalUv, focusMin)) || any(greaterThan(logicalUv, focusMax))) {
       finalColor = vec4(0.0);
       return;
     }
@@ -116,7 +131,7 @@ void main() {
   if (uTheme < 0.5) {
     // Meadow: sunlight fans from just above the garden, leaving clear breaks
     // between the shafts instead of applying a uniform yellow wash.
-    float direction = (p.x - 0.12) / (p.y + 0.34);
+    float direction = (p.x - 0.12) / max(p.y + 0.34, 0.04);
     float ray = smoothstep(0.25, 0.96, sin(direction * 8.0 + sin(uTime * 0.6) * 0.2));
     float fineRay = smoothstep(0.68, 0.99, sin(direction * 19.0 - uTime * 0.3));
     float reach = 1.0 - smoothstep(0.15, 1.35, sceneUv.y);
@@ -145,7 +160,7 @@ void main() {
     shade += 0.028;
     float rain = rainStreaks(p, vec2(26.0, 14.0), 0.3125, 0.0)
       + rainStreaks(p + vec2(0.37, 0.11), vec2(19.0, 12.0), 0.25, 7.0) * 0.4;
-    vec2 world = (vUv * uViewport - uView.xy) / max(uView.z, 0.001);
+    vec2 world = (logicalUv * uViewport - uView.xy) / max(uView.z, 0.001);
     float ripples = max(waterRipples(world, uPond0), waterRipples(world, uPond1));
     detail = min(0.31, rain * 0.29 + ripples * 0.26);
     lightColor = vec3(0.65, 0.85, 0.92);
@@ -201,9 +216,10 @@ void main() {
   finalColor = vec4(color * strength, alpha * strength);
 }`
 
-export function createGardenAtmosphere(width: number, height: number, gardenId: GardenId) {
+export function createGardenAtmosphere(width: number, height: number, gardenId: GardenId, overscan?: Overscan) {
   const view = new Float32Array([0, 0, 1, 0])
   const viewport = new Float32Array([width, height])
+  const surfaceFrame = new Float32Array([width, height, 0, 0])
   const pond0 = new Float32Array([0, 0, 1, 1])
   const pond1 = new Float32Array([0, 0, 1, 1])
   const focusRect = new Float32Array([0, 0, 1, 1])
@@ -231,6 +247,7 @@ export function createGardenAtmosphere(width: number, height: number, gardenId: 
         uFocus: { value: 0, type: 'f32' },
         uFocusRect: { value: focusRect, type: 'vec4<f32>' },
         uViewport: { value: viewport, type: 'vec2<f32>' },
+        uSurface: { value: surfaceFrame, type: 'vec4<f32>' },
         uView: { value: view, type: 'vec4<f32>' },
         uPond0: { value: pond0, type: 'vec4<f32>' },
         uPond1: { value: pond1, type: 'vec4<f32>' }
@@ -240,7 +257,7 @@ export function createGardenAtmosphere(width: number, height: number, gardenId: 
   surface.filters = [filter]
   const uniforms = filter.resources.atmosphereUniforms.uniforms
   const preparedPrograms = new Map<WebGLRenderer, PreparedProgram>()
-  let currentWidth = 0, currentHeight = 0
+  let currentWidth = 0, currentHeight = 0, marginX = 0, marginY = 0
   let waterLoaded = false
 
   function updateFocusRect() {
@@ -291,19 +308,27 @@ export function createGardenAtmosphere(width: number, height: number, gardenId: 
     } catch { return false }
   }
 
-  function resize(nextWidth: number, nextHeight: number) {
+  function resize(nextWidth: number, nextHeight: number, nextOverscan?: Overscan) {
     if (root.destroyed) return
     const w = Math.max(1, Number.isFinite(nextWidth) ? nextWidth : 1)
     const h = Math.max(1, Number.isFinite(nextHeight) ? nextHeight : 1)
-    if (currentWidth === w && currentHeight === h) return
+    const mx = Math.max(0, Math.min(Math.max(64, w), Number.isFinite(nextOverscan?.x) ? nextOverscan!.x : 0))
+    const my = Math.max(0, Math.min(Math.max(64, h), Number.isFinite(nextOverscan?.y) ? nextOverscan!.y : 0))
+    if (currentWidth === w && currentHeight === h && marginX === mx && marginY === my) return
     currentWidth = w
     currentHeight = h
-    surface.clear().rect(0, 0, w, h).fill(0xffffff)
-    surface.filterArea = new Rectangle(0, 0, w, h)
-    filter.resolution = gardenAtmosphereResolution(w, h)
+    marginX = mx
+    marginY = my
+    const extendedWidth = w + 2 * mx, extendedHeight = h + 2 * my
+    surface.clear().rect(-mx, -my, extendedWidth, extendedHeight).fill(0xffffff)
+    // Pixi transforms filterArea from this surface's local space. The caller's
+    // stage translation by mx/my moves this rectangle to renderer origin 0/0.
+    surface.filterArea = new Rectangle(-mx, -my, extendedWidth, extendedHeight)
+    filter.resolution = gardenAtmosphereResolution(extendedWidth, extendedHeight)
     uniforms.uAspect = w / h
     viewport[0] = w
     viewport[1] = h
+    surfaceFrame.set([extendedWidth, extendedHeight, mx, my])
     updateFocusRect()
   }
 
@@ -355,7 +380,7 @@ export function createGardenAtmosphere(width: number, height: number, gardenId: 
     preparedPrograms.clear()
     filter.destroy(true)
   })
-  resize(width, height)
+  resize(width, height, overscan)
   setGarden(gardenId)
   return { root, prepare, resize, update, setGarden, setView, setFocus, setEnabled, destroy: () => root.destroy({ children: true, context: true }) }
 }

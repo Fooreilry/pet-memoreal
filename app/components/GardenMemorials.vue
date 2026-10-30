@@ -168,7 +168,7 @@ function restoreMarkerFocus() {
   nextTick(() => {
     const active = document.activeElement
     // An action taken in the header while the dialog is closing must keep its focus.
-    if (active && active !== document.body && !active.closest('.memorial-story-card, .scene-preparing')) { pendingRestore = undefined; return }
+    if (active && active !== document.body && !active.closest('.memorial-story-card, .scene-preparing, .scene-cancel')) { pendingRestore = undefined; return }
     const target = id ? stoneElement(id) : trigger
     if (target?.isConnected) {
       restoringFocus = true
@@ -197,7 +197,7 @@ const detailContent = computed(() => ({
     const target = (event as CustomEvent<{ originalEvent: Event }>).detail?.originalEvent?.target
     // The preparation cancel button belongs to this view, although its veil
     // sits outside the dialog so the waiting content can stay entirely inert.
-    if (target instanceof Element && target.closest('.scene-preparing')) event.preventDefault()
+    if (target instanceof Element && target.closest('.scene-preparing, .scene-cancel')) event.preventDefault()
   },
   inert: !props.detailReady,
   'aria-hidden': !props.detailReady || undefined

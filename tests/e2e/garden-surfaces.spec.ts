@@ -16,6 +16,32 @@ async function clearPreview(page: Page) {
   await expect(page.getByTestId('memorial-summary')).toHaveCount(0)
 }
 
+async function sceneryFrame(page: Page, path?: string) {
+  const hasTitle = await page.evaluate(() => {
+    const title = document.querySelector<HTMLElement>('[data-testid="garden-title"].garden-title')
+    if (!title) return false
+    const bounds = title.getBoundingClientRect()
+    // The fading title's fractional mask edge can leave one antialiased column.
+    // Mask integer CSS bounds with a one-pixel gutter, preserving every scene pixel outside it.
+    const mask = document.createElement('div')
+    mask.dataset.testid = 'garden-surface-title-mask'
+    mask.setAttribute('aria-hidden', 'true')
+    Object.assign(mask.style, {
+      position: 'fixed', left: `${Math.floor(bounds.left) - 1}px`, top: `${Math.floor(bounds.top) - 1}px`,
+      width: `${Math.ceil(bounds.right) - Math.floor(bounds.left) + 2}px`,
+      height: `${Math.ceil(bounds.bottom) - Math.floor(bounds.top) + 2}px`, pointerEvents: 'none'
+    })
+    document.body.appendChild(mask)
+    return true
+  })
+  const mask = page.getByTestId('garden-surface-title-mask')
+  try {
+    return await page.locator('.canvas-wrapper').screenshot({ path, mask: hasTitle ? [mask] : [], animations: 'disabled' })
+  } finally {
+    if (hasTitle) await mask.evaluate(element => element.remove())
+  }
+}
+
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/gardens/*/memorials', route => route.fulfill({ json: [] }))
   await page.emulateMedia({ reducedMotion: 'reduce' })
@@ -26,16 +52,15 @@ test('textured garden previews stay still and all four choices remain reachable'
   page.on('pageerror', error => errors.push(error.message))
   await visitLocale(page, '/gardens', 'en')
   const scene = page.locator('.canvas-wrapper')
-  const canvas = page.locator('canvas')
   await expect(scene).toHaveAttribute('data-state', 'ready')
   await expect(scene).toHaveAttribute('data-motion', 'paused')
   await expect(page.getByTestId('garden-choices').getByRole('button')).toHaveCount(4)
   for (const garden of gardens) await expect(page.getByTestId(`garden-choice-${garden.id}`)).toBeInViewport()
   await clearPreview(page)
-  const still = await canvas.screenshot({ path: testInfo.outputPath('textured-garden-overview.png') })
+  const still = await sceneryFrame(page, testInfo.outputPath('textured-garden-overview.png'))
   // A stopped ticker must retain the cached surface instead of repainting random details.
   await page.waitForTimeout(150)
-  expect(Buffer.compare(still, await canvas.screenshot())).toBe(0)
+  expect(Buffer.compare(still, await sceneryFrame(page))).toBe(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true)
   expect(errors).toEqual([])
 })
@@ -52,7 +77,6 @@ for (const garden of gardens) {
     else await choice.click()
     await expect(page).toHaveURL(new RegExp(`/gardens\\?garden=${garden.id}$`))
     const scene = page.locator('.canvas-wrapper')
-    const canvas = page.locator('canvas')
     await expect(scene).toHaveAttribute('data-state', 'ready')
     await expect(scene).toHaveAttribute('data-motion', 'paused')
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(garden.name)
@@ -61,7 +85,7 @@ for (const garden of gardens) {
     await expect(page.locator('.memorial-empty:disabled')).toHaveCount(0)
     await expect(page.locator('.memorial-hit[data-monument-kind]')).toHaveCount(4)
     await clearPreview(page)
-    await canvas.screenshot({ path: testInfo.outputPath(`${garden.id}-textured-ground.png`) })
+    await sceneryFrame(page, testInfo.outputPath(`${garden.id}-textured-ground.png`))
 
     const first = page.getByTestId(`memorial-${garden.id}-1`)
     await first.focus()
@@ -87,9 +111,14 @@ for (const garden of gardens) {
     await expect(last).toBeFocused()
     await expect(page.locator('.camera-toolbar output')).toHaveText('156%')
     await clearPreview(page)
-    const detail = await canvas.screenshot({ path: testInfo.outputPath(`${garden.id}-textured-ground-detail-156.png`) })
+    const detail = await sceneryFrame(page, testInfo.outputPath(`${garden.id}-textured-ground-detail-156.png`))
     await page.waitForTimeout(150)
-    expect(Buffer.compare(detail, await canvas.screenshot())).toBe(0)
+    const repeated = await sceneryFrame(page)
+    if (Buffer.compare(detail, repeated) !== 0) {
+      await testInfo.attach('paused-ground-initial', { body: detail, contentType: 'image/png' })
+      await testInfo.attach('paused-ground-repeated', { body: repeated, contentType: 'image/png' })
+    }
+    expect(Buffer.compare(detail, repeated)).toBe(0)
 
     await page.getByTestId('garden-camera-reset').click()
     await expect(scene).toHaveAttribute('data-zoom', '1.000')

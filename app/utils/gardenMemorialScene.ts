@@ -13,6 +13,8 @@ export type MemorialSceneLayout = {
 }
 
 type GroundContact = { kind: 'tree' | 'shrub' | 'rock' | 'flower' | 'herb', node: Graphics, x: number, y: number, size: number }
+type Overscan = { x: number, y: number }
+type LandscapeExtent = { left: number, right: number, bottom: number }
 
 const palettes = {
   meadow: { sky: 0x40645b, horizon: 0xb9bd95, distant: 0x7f9a78, middle: 0x668a68, ground: 0x386447, flower: 0xead9b6 },
@@ -45,20 +47,30 @@ function blend(first: number, second: number, amount: number) {
   return channel(16) << 16 | channel(8) << 8 | channel(0)
 }
 
-function hill(g: Graphics, left: number, width: number, height: number, y: number, amplitude: number, color: number, phase: number) {
-  g.moveTo(left - width * .15, height)
-    .lineTo(left - width * .15, y + amplitude * .25)
-    .bezierCurveTo(left + width * .15, y - amplitude, left + width * .35, y + amplitude * .5, left + width * .6, y - amplitude * .2)
+function hill(g: Graphics, left: number, width: number, height: number, y: number, amplitude: number, color: number, phase: number, extent?: LandscapeExtent) {
+  const coreLeft = left - width * .15, coreRight = left + width * 1.15
+  const outerLeft = extent ? Math.min(extent.left, coreLeft) : coreLeft
+  const outerRight = extent ? Math.max(extent.right, coreRight) : coreRight
+  const bottom = extent?.bottom ?? height
+  g.moveTo(outerLeft, bottom)
+    .lineTo(outerLeft, y + amplitude * .25)
+  if (outerLeft < coreLeft) g.lineTo(coreLeft, y + amplitude * .25)
+  g.bezierCurveTo(left + width * .15, y - amplitude, left + width * .35, y + amplitude * .5, left + width * .6, y - amplitude * .2)
     .bezierCurveTo(left + width * .77, y - amplitude * phase, left + width * .92, y + amplitude * .5, left + width * 1.15, y - amplitude * .4)
-    .lineTo(left + width * 1.15, height).closePath().fill(color)
+  if (outerRight > coreRight) g.lineTo(outerRight, y - amplitude * .4)
+  g.lineTo(outerRight, bottom).closePath().fill(color)
 }
 
 type MovingDetail = { node: Container, x: number, y: number, phase: number, kind: 'leaf' | 'grass' | 'light' | 'wing' | 'ripple' }
 
 /** Eye-level scenery for the selected memorial. The caller owns rendering and time. */
-export function createGardenMemorialScene(width: number, height: number, gardenId: GardenId, place: number) {
+export function createGardenMemorialScene(width: number, height: number, gardenId: GardenId, place: number, overscan?: Overscan) {
   const w = Math.max(1, Number.isFinite(width) ? width : 1)
   const h = Math.max(1, Number.isFinite(height) ? height : 1)
+  const mx = Math.max(0, Math.min(Math.max(64, w), Number.isFinite(overscan?.x) ? overscan!.x : 0))
+  const my = Math.max(0, Math.min(Math.max(64, h), Number.isFinite(overscan?.y) ? overscan!.y : 0))
+  const extendedWidth = w + mx * 2, extendedHeight = h + my * 2
+  const extent = mx || my ? { left: -mx, right: w + mx, bottom: h + my } : undefined
   const layout = getMemorialSceneLayout(w, h)
   const { visual, monument: target } = layout
   const { left: x, width: vw, height: vh } = visual
@@ -72,20 +84,21 @@ export function createGardenMemorialScene(width: number, height: number, gardenI
   background.addChild(ground)
   root.addChild(background)
 
-  ground.rect(0, 0, w, h).fill(palette.ground)
+  ground.rect(-mx, -my, extendedWidth, extendedHeight).fill(palette.ground)
   // One-colour-step sky bands are cached once. Unlike the former 22px bands,
   // they cannot read as horizontal stripes and require no DOM gradient canvas.
   const skyHeight = vh * .59
+  if (my) ground.rect(-mx, -my, extendedWidth, my).fill(palette.sky)
   for (let band = 0; band < 256; band++) {
-    ground.rect(0, band * skyHeight / 256, w, skyHeight / 256 + .5).fill(blend(palette.sky, palette.horizon, band / 255))
+    ground.rect(-mx, band * skyHeight / 256, extendedWidth, skyHeight / 256 + .5).fill(blend(palette.sky, palette.horizon, band / 255))
   }
   if (gardenId === 'meadow') {
     const sunX = x + vw * .72, sunY = vh * .23
     for (let layer = 5; layer > 0; layer--) ground.circle(sunX, sunY, vh * (.052 + layer * .012)).fill({ color: 0xf7dfad, alpha: .03 + (5 - layer) * .014 })
     ground.circle(sunX, sunY, vh * .046).fill({ color: 0xf9e6b4, alpha: .82 })
   }
-  hill(ground, x, vw, h, vh * .43, vh * .1, palette.distant, .9)
-  hill(ground, x, vw, h, vh * .51, vh * .065, palette.middle, 1.4)
+  hill(ground, x, vw, h, vh * .43, vh * .1, palette.distant, .9, extent)
+  hill(ground, x, vw, h, vh * .51, vh * .065, palette.middle, 1.4, extent)
 
   // A joined treeline grows out of the distant bank rather than floating as
   // separate triangle icons over the sky.
@@ -114,9 +127,20 @@ export function createGardenMemorialScene(width: number, height: number, gardenI
       .lineTo(x + vw * 1.15, vh * .65)
       .bezierCurveTo(x + vw * .7, vh * .635, x + vw * .3, vh * .61, x - vw * .15, vh * .65)
       .closePath().fill(0x477b7c)
+    // Extend only the edge banks; the original water curve and ripple anchor
+    // stay in logical coordinates at their original scale.
+    if (extent) {
+      const leftEdge = x - vw * .15, rightEdge = x + vw * 1.15
+      if (extent.left < leftEdge) ground.rect(extent.left, vh * .46, leftEdge - extent.left, vh * .19).fill(0x477b7c)
+      if (extent.right > rightEdge) ground.rect(rightEdge, vh * .435, extent.right - rightEdge, vh * .215).fill(0x477b7c)
+    }
     for (let band = 0; band < 36; band++) {
       const yy = vh * (.47 + band / 36 * .14)
       ground.rect(x, yy, vw, vh * .14 / 36 + .5).fill({ color: blend(0x739995, 0x4e7e78, band / 35), alpha: .27 })
+      if (mx) {
+        ground.rect(-mx, yy, mx, vh * .14 / 36 + .5).rect(w, yy, mx, vh * .14 / 36 + .5)
+          .fill({ color: blend(0x739995, 0x4e7e78, band / 35), alpha: .27 })
+      }
     }
     for (let index = 0; index < 6; index++) {
       const yy = cy + (index / 5 - .5) * ry * 1.3
@@ -131,12 +155,13 @@ export function createGardenMemorialScene(width: number, height: number, gardenI
     }
   }
 
-  hill(ground, x, vw, h, vh * (gardenId === 'lake' ? .65 : .59), vh * .035, palette.ground, .6)
+  hill(ground, x, vw, h, vh * (gardenId === 'lake' ? .65 : .59), vh * .035, palette.ground, .6, extent)
   // Perspective darkens towards the viewer; every near prop uses this same plane.
   for (let band = 0; band < 96; band++) {
     const yy = vh * (.67 + band / 96 * .33)
-    ground.rect(0, yy, w, vh * .33 / 96 + .5).fill({ color: blend(palette.ground, 0x193e30, band / 95), alpha: .42 })
+    ground.rect(-mx, yy, extendedWidth, vh * .33 / 96 + .5).fill({ color: blend(palette.ground, 0x193e30, band / 95), alpha: .42 })
   }
+  if (my > .5 && vh === h) ground.rect(-mx, h + .5, extendedWidth, my - .5).fill({ color: 0x193e30, alpha: .42 })
   const groundY = target.y + target.scale * 32
   for (let layer = 12; layer >= 0; layer--) {
     ground.ellipse(target.x + target.scale * 3, groundY + target.scale * .5, target.scale * (43 + layer * 1.8), target.scale * (2 + layer * .42))
@@ -201,7 +226,8 @@ export function createGardenMemorialScene(width: number, height: number, gardenI
     background.addChild(flowers)
     contacts.push({ kind: 'flower', node: flowers, x: flowers.x, y: flowers.y, size })
   }
-  background.cacheAsTexture({ resolution: Math.min(2, 2048 / Math.max(w, h)), antialias: true })
+  const cacheBounds = background.getLocalBounds()
+  background.cacheAsTexture({ resolution: Math.min(2, 2048 / Math.max(1, cacheBounds.maxX - cacheBounds.minX, cacheBounds.maxY - cacheBounds.minY)), antialias: true })
 
   const ambience = new Container({ label: 'memorial-ambient-details' })
   ambience.eventMode = 'none'

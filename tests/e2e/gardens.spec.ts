@@ -15,10 +15,12 @@ async function chooseGarden(page: Page, id: string) {
   const tile = page.getByTestId(`garden-choice-${id}`)
   if (await tile.isVisible()) {
     await tile.click()
-    return
+  } else {
+    await page.getByTestId('garden-switch').click()
+    await page.getByTestId(`garden-${id}`).click()
   }
-  await page.getByTestId('garden-switch').click()
-  await page.getByTestId(`garden-${id}`).click()
+  await expect(page).toHaveURL(new RegExp(`[?&]garden=${id}(?:&|$)`))
+  await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
 }
 
 test.beforeEach(async ({ page }) => {
@@ -104,9 +106,12 @@ test('leaving a loading garden ignores its late places response when another gar
   try {
     await visitLocale(page, '/gardens', 'en')
     await page.getByTestId('garden-choice-lake').click()
+    await expect(page).toHaveURL(/\/gardens\?garden=lake$/)
     await expect(page.getByTestId('garden-loading')).toContainText('Gathering stories')
     await page.goBack()
+    await expect(page).toHaveURL(/\/gardens$/)
     await page.getByTestId('garden-choice-grove').click()
+    await expect(page).toHaveURL(/\/gardens\?garden=grove$/)
     await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
     release()
     await expect.poll(() => lakeSettled).toBe(true)

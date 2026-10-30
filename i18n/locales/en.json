@@ -301,6 +301,8 @@
     "mapLabel": "Map of four gardens: Meadow, Lake, Grove and Hill. Select a garden, or focus it with Tab and press Enter.",
     "territoryLabel": "{name} garden: grounds with paths and abstract memorial stones for pets.",
     "loading": "Opening the garden",
+    "cancelTransition": "Cancel",
+    "skipTransition": "Skip",
     "loadingHint": "The garden opens once all its memorials are ready.",
     "preparing": {
       "title": "The garden is waking up",

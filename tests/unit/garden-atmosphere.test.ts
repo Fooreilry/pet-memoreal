@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test, { after } from 'node:test'
-import { DOMAdapter } from 'pixi.js'
+import { Bounds, Container, DOMAdapter } from 'pixi.js'
 import type { Filter, GlProgram, Graphics, WebGLRenderer } from 'pixi.js'
 import { createGardenAtmosphere, gardenAtmosphereResolution } from '../../app/utils/gardenAtmosphere'
 import { gardenIds } from '../../shared/gardens'
@@ -94,6 +94,94 @@ test('atmosphere work is bounded by viewport size rather than device pixel ratio
     assert.ok(resolution > 0 && resolution <= 0.5)
     assert.ok(Math.max(width!, height!) * resolution <= 768)
   }
+})
+
+test('weather overscan fills renderer margins while keeping nominal camera, focus and pond coordinates', () => {
+  const atmosphere = createGardenAtmosphere(1440, 900, 'lake', { x: 160, y: 100 })
+  try {
+    const surface = atmosphere.root.children[0] as Graphics
+    const filter = surface.filters![0] as Filter
+    const uniforms = filter.resources.atmosphereUniforms.uniforms
+    const frame = uniforms.uSurface
+    const geometry = surface.context
+    const program = filter.glProgram
+    const pond = [...uniforms.uPond0]
+    atmosphere.setView({ x: -35, y: 18, scale: 1.5 })
+    atmosphere.setFocus(true, { left: 440, top: 0, width: 1000, height: 900 })
+    const focus = [...uniforms.uFocusRect]
+    const assertFrame = (width: number, height: number, mx: number, my: number) => {
+      assert.deepEqual([...uniforms.uSurface], [width + mx * 2, height + my * 2, mx, my])
+      assert.deepEqual([...uniforms.uViewport], [width, height])
+      assert.equal(uniforms.uAspect, width / height)
+      const bounds = surface.getLocalBounds()
+      assert.deepEqual([bounds.minX, bounds.minY, bounds.maxX, bounds.maxY], [mx ? -mx : 0, my ? -my : 0, width + mx, height + my])
+      assert.equal(surface.filterArea!.x, -mx)
+      assert.equal(surface.filterArea!.y, -my)
+      assert.equal(surface.filterArea!.width, width + mx * 2)
+      assert.equal(surface.filterArea!.height, height + my * 2)
+      assert.ok(Math.max(width + mx * 2, height + my * 2) * filter.resolution <= 768.001)
+      for (const [x, y] of [[0, 0], [width / 2, height / 2], [width, height]]) {
+        // Match the shader's conversion from its extended surface to logical UV.
+        const extendedU = (x! + mx) / frame[0]
+        const extendedV = (y! + my) / frame[1]
+        const logicalX = extendedU * frame[0] - frame[2]
+        const logicalY = extendedV * frame[1] - frame[3]
+        assert.ok(Math.abs(logicalX - x!) < 1e-8)
+        assert.ok(Math.abs(logicalY - y!) < 1e-8)
+        assert.ok(Math.abs((logicalX - uniforms.uView[0]) / uniforms.uView[2] - (x! + 35) / 1.5) < 1e-8)
+      }
+    }
+    assertFrame(1440, 900, 160, 100)
+    atmosphere.resize(1440, 900, { x: 240, y: 180 })
+    assertFrame(1440, 900, 240, 180)
+    assert.deepEqual([...uniforms.uFocusRect], focus, 'overscan must not enlarge the reading-card exclusion region')
+    assert.deepEqual([...uniforms.uPond0], pond)
+    assert.deepEqual([...uniforms.uView], [-35, 18, 1.5, 0])
+    assert.equal(uniforms.uSurface, frame)
+    assert.equal(surface.context, geometry)
+    assert.equal(surface.context.instructions.length, 1)
+    assert.equal(surface.filters!.length, 1)
+    assert.equal(filter.glProgram, program)
+    atmosphere.resize(1440, 900)
+    assertFrame(1440, 900, 0, 0)
+    assert.deepEqual([...uniforms.uFocusRect], focus)
+  } finally { atmosphere.destroy() }
+})
+
+test('weather overscan preserves the blur safety margin on tiny viewports and rejects invalid margins', () => {
+  const atmosphere = createGardenAtmosphere(1, 1, 'meadow', { x: 32, y: 32 })
+  try {
+    const surface = atmosphere.root.children[0] as Graphics
+    const filter = surface.filters![0] as Filter
+    const uniforms = filter.resources.atmosphereUniforms.uniforms
+    assert.deepEqual([...uniforms.uSurface], [65, 65, 32, 32])
+    atmosphere.resize(400, 300, { x: Number.NaN, y: -20 })
+    assert.deepEqual([...uniforms.uSurface], [400, 300, 0, 0])
+    atmosphere.resize(400, 300, { x: Infinity, y: 1e9 })
+    assert.deepEqual([...uniforms.uSurface], [400, 900, 0, 300])
+    assert.ok(Math.max(surface.filterArea!.width, surface.filterArea!.height) * filter.resolution <= 768)
+  } finally { atmosphere.destroy() }
+})
+
+test('weather local filter area reaches renderer origin after the overscan stage translation', () => {
+  const stage = new Container()
+  const atmosphere = createGardenAtmosphere(1440, 900, 'lake')
+  stage.addChild(atmosphere.root)
+  try {
+    const surface = atmosphere.root.children[0] as Graphics
+    for (const [width, height, mx, my] of [[1440, 900, 160, 100], [390, 768, 60, 80], [1, 1, 32, 32], [1440, 900, 0, 0]]) {
+      stage.position.set(mx, my)
+      atmosphere.resize(width!, height!, { x: mx!, y: my! })
+      // This is the same local-rectangle transform used by Pixi's FilterSystem.
+      // getGlobalTransform calculates the render-time world matrix without a GPU.
+      const globalArea = new Bounds()
+      globalArea.addRect(surface.filterArea!)
+      globalArea.applyMatrix(surface.getGlobalTransform())
+      assert.deepEqual([globalArea.minX, globalArea.minY, globalArea.maxX, globalArea.maxY], [0, 0, width! + 2 * mx!, height! + 2 * my!])
+      const drawnArea = surface.getBounds()
+      assert.deepEqual([drawnArea.minX, drawnArea.minY, drawnArea.maxX, drawnArea.maxY], [globalArea.minX, globalArea.minY, globalArea.maxX, globalArea.maxY], 'weather drawing and filtering cover the same extended frame')
+    }
+  } finally { atmosphere.destroy(); stage.destroy() }
 })
 
 test('weather tracks the camera and real lake geography without rebuilding geometry or uniform arrays', () => {

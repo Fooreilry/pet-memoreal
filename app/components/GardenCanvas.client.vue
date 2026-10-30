@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Application, Container, Graphics } from 'pixi.js'
+import { Application, Container, Graphics, RenderTexture, Sprite } from 'pixi.js'
 import type { WebGLRenderer } from 'pixi.js'
 import { findDemoGarden } from '../data/demoGardens'
 import type { GardenId } from '../data/demoGardens'
@@ -19,9 +19,15 @@ import { createGardenAtmosphere } from '../utils/gardenAtmosphere'
 import { createGardenMemorialScene } from '../utils/gardenMemorialScene'
 import type { GardenMemorial } from '../data/demoMemorials'
 import { getMonumentKind } from '../data/monuments'
+import { createGardenSceneTransition } from '../utils/gardenSceneTransition'
+import type { GardenTransitionFocus, GardenTransitionTransform, GardenTransitionDirection } from '../utils/gardenSceneTransition'
+import { getGardenSceneFrame } from '../utils/gardenSceneFrame'
+import type { GardenSceneFrame } from '../utils/gardenSceneFrame'
+
+type SceneTarget = { kind: 'overview' | 'garden' | 'memorial', gardenId?: GardenId, memorialId?: string }
 
 const props = withDefaults(defineProps<{ gardenId?: GardenId, memorials?: PublicMemorial[], placesState?: 'loading' | 'ready' | 'error', focusId?: string, canCreate?: boolean, editing?: boolean, fullscreen?: boolean }>(), { memorials: () => [], placesState: 'ready', focusId: undefined, gardenId: undefined, canCreate: false, editing: false, fullscreen: false })
-const emit = defineEmits<{ select: [id: GardenId], create: [place: number], ready: [value: boolean], detail: [open: boolean], retry: [], toggleFullscreen: [] }>()
+const emit = defineEmits<{ select: [id: GardenId], create: [place: number], ready: [value: boolean], displayed: [id?: GardenId], cancel: [id?: GardenId], detail: [open: boolean], retry: [], toggleFullscreen: [] }>()
 const { t, locale } = useI18n()
 const { seed: sessionSeed } = useGardenSession()
 const host = ref<HTMLDivElement>()
@@ -32,17 +38,34 @@ const memorialLayer = ref<{ closeDetail: () => void }>()
 const detailState = ref<'none' | 'preparing' | 'entering' | 'ready' | 'returning'>('none')
 const detailSteps = ref(0)
 const detailGeometry = shallowRef<{ x: number, y: number, scale: number }>()
-const transitionPhase = ref<'loading' | 'revealing' | 'idle'>('loading')
+const controller = createGardenSceneTransition<SceneTarget>()
+const transition = shallowRef(controller.state)
+const transitionPhase = computed(() => transition.value.phase)
+const displayedGarden = ref<GardenId>()
+const displayedRecords = shallowRef(props.memorials)
+const activeGarden = ref(props.gardenId)
+const snapshotReady = ref(false)
+const viewportSize = reactive({ width: 1000, height: 650 })
+const drawingFrame = shallowRef(getGardenSceneFrame(1000, 650, false))
+const presentationStyle = computed(() => ({
+  transform: `matrix(${transition.value.transform.scale}, 0, 0, ${transition.value.transform.scale}, ${transition.value.transform.x * viewportSize.width}, ${transition.value.transform.y * viewportSize.height})`,
+  filter: transition.value.blur ? `blur(${transition.value.blur}px)` : 'none',
+  '--drawing-width': `${drawingFrame.value.width}px`, '--drawing-height': `${drawingFrame.value.height}px`,
+  '--drawing-left': `${-drawingFrame.value.margin.x}px`, '--drawing-top': `${-drawingFrame.value.margin.y}px`
+}))
+const sceneTint = computed(() => ({ meadow: '#214535', lake: '#163b40', grove: '#193c30', hill: '#2d483c' })[transition.value.requested?.gardenId ?? 'meadow'])
+const tintOpacity = computed(() => transition.value.cover * (transitionPhase.value === 'preparing' && hasFrame.value && !snapshotReady.value ? 1 : .2))
 const hasFrame = ref(false)
 const state = ref<'loading' | 'ready' | 'error'>('loading')
 const sceneReady = ref(false)
 const dataReady = computed(() => !props.gardenId || props.placesState === 'ready')
-const isReady = computed(() => state.value === 'ready' && dataReady.value && sceneReady.value)
-const viewState = computed(() => state.value === 'error' || (props.gardenId && props.placesState === 'error') ? 'error' : interactive.value ? 'ready' : 'loading')
+const isReady = computed(() => state.value === 'ready' && sceneReady.value)
+const viewState = computed(() => state.value === 'error' || transitionPhase.value === 'error' ? 'error' : interactive.value ? 'ready' : 'loading')
 const loadingSteps = computed(() => state.value !== 'ready' ? 0 : !dataReady.value ? 1 : !sceneReady.value ? 2 : 3)
 const loadingPhase = computed(() => state.value !== 'ready' ? 'opening' : !dataReady.value ? 'stories' : 'places')
-const visualBusy = computed(() => !isReady.value || detailState.value === 'preparing' || detailState.value === 'returning')
-const interactive = computed(() => isReady.value && transitionPhase.value === 'idle')
+const visualBusy = computed(() => !interactive.value)
+const returningFromMemorial = computed(() => transition.value.source?.kind === 'memorial' && transition.value.requested?.kind !== 'memorial')
+const interactive = computed(() => isReady.value && transition.value.interactive)
 const cameraEnabled = computed(() => interactive.value && !!props.gardenId && !modalOpen.value && !props.editing)
 const { camera, interacting, dragging, reset, resize, zoomTo, reveal, pointerDown, pointerMove, pointerUp, clickCapture, wheel, keydown } = useGardenCamera(viewport, cameraEnabled)
 const world = shallowRef({ width: 1000, height: 650 })
@@ -62,7 +85,12 @@ let readyFrame = 0
 let prepareFrame = 0
 let renderRevision = 0
 let detailRevision = 0
-let revealTimer: ReturnType<typeof setTimeout> | undefined
+let transitionFrame = 0
+let loaderTimer: ReturnType<typeof setTimeout> | undefined
+let restoringSource = false
+let sourceFocusId: string | undefined
+let sourceCamera = { zoom: 1, x: 0, y: 0 }
+let restoreCamera: typeof sourceCamera | undefined
 let overviewFrame = 0
 let overviewTime = 0
 let intersection: IntersectionObserver | undefined
@@ -78,37 +106,207 @@ let atmosphere: ReturnType<typeof createGardenAtmosphere> | undefined
 let rendered: { app: Application, width: number, height: number, gardenId?: GardenId, locale: string, memorials: PublicMemorial[], seed: number } | undefined
 let elapsed = 0
 let detailScene: ReturnType<typeof createGardenMemorialScene> | undefined
-let detailKey = ''
 let detailFrame = 0
+let retainedFrame: { texture: RenderTexture, sprite: Sprite, exit: GardenTransitionTransform, frame: GardenSceneFrame } | undefined
 const paused = ref(false)
 const reducedMotion = ref(false)
 const inView = ref(true)
 const visible = ref(true)
 const effectsEnabled = ref(true)
 const effectsSupported = ref(true)
-const weather = computed(() => !props.gardenId || !effectsEnabled.value || !effectsSupported.value ? 'none' : ({ meadow: 'sun', lake: 'rain', grove: 'canopy', hill: 'clouds' } as const)[props.gardenId])
+const weather = computed(() => !displayedGarden.value || !effectsEnabled.value || !effectsSupported.value ? 'none' : ({ meadow: 'sun', lake: 'rain', grove: 'canopy', hill: 'clouds' } as const)[displayedGarden.value])
 const moving = computed(() => interactive.value && !paused.value && !reducedMotion.value && (!modalOpen.value || !!detailMemorial.value) && !props.editing && inView.value && visible.value)
 
 watch(interactive, value => emit('ready', value), { immediate: true })
-function finishReveal() {
-  if (disposed || visualBusy.value) return
-  clearTimeout(revealTimer)
-  transitionPhase.value = 'idle'
-  if (detailState.value === 'entering') detailState.value = 'ready'
+
+function mapTarget(id = props.gardenId): SceneTarget { return { kind: id ? 'garden' : 'overview', gardenId: id } }
+function sameTarget(a: SceneTarget | undefined, b: SceneTarget) { return a?.kind === b.kind && a.gardenId === b.gardenId && a.memorialId === b.memorialId }
+
+function directionFor(target: SceneTarget): GardenTransitionDirection {
+  const source = controller.state.displayed
+  const rank = { overview: 0, garden: 1, memorial: 2 }
+  if (source && rank[target.kind] < rank[source.kind]) return 'backward'
+  if (source?.kind === 'garden' && target.kind === 'garden' && source.gardenId !== target.gardenId) return 'lateral'
+  return 'forward'
 }
-watch(visualBusy, (busy) => {
-  clearTimeout(revealTimer)
-  if (disposed) return
-  if (busy) { transitionPhase.value = 'loading'; return }
-  if (transitionPhase.value === 'idle') return
-  if (reducedMotion.value) finishReveal()
-  else {
-    transitionPhase.value = 'revealing'
-    // The transition event owns completion, including Vue's paint frames.
-    // A bounded fallback also settles if the tab is hidden during the reveal.
-    revealTimer = setTimeout(finishReveal, 400)
+
+function disposeRetainedFrame() {
+  retainedFrame?.sprite.removeFromParent()
+  retainedFrame?.sprite.destroy()
+  retainedFrame?.texture.destroy(true)
+  retainedFrame = undefined
+  snapshotReady.value = false
+}
+
+function captureRetainedFrame() {
+  if (!application || !hasFrame.value || state.value !== 'ready') return
+  const { width, height } = application.renderer.screen
+  const texture = RenderTexture.create({ width, height, resolution: Math.min(1, 1024 / Math.max(width, height)), antialias: false })
+  try {
+    // One bounded GPU copy on the existing renderer; no readback or extra canvas.
+    application.renderer.render({ container: application.stage, target: texture, clear: true })
+    disposeRetainedFrame()
+    const sprite = new Sprite(texture)
+    sprite.eventMode = 'none'
+    retainedFrame = { texture, sprite, exit: { ...controller.state.transform }, frame: drawingFrame.value }
+    application.stage.addChild(sprite)
+    snapshotReady.value = true
+  } catch {
+    texture.destroy(true)
+    // Preparation still has an opaque fallback if snapshotting is unsupported.
   }
-}, { flush: 'sync', immediate: true })
+}
+
+function syncRetainedFrame() {
+  if (!application || !retainedFrame) return
+  const current = controller.state
+  if (current.phase === 'idle') { disposeRetainedFrame(); return }
+  const { sprite, frame } = retainedFrame
+  const view = current.transform
+  const exit = current.phase === 'revealing' ? retainedFrame.exit : view
+  const { viewWidth: width, viewHeight: height } = drawingFrame.value
+  const sx = width / frame.viewWidth * exit.scale / view.scale
+  const sy = height / frame.viewHeight * exit.scale / view.scale
+  sprite.scale.set(sx, sy)
+  sprite.position.set((exit.x - view.x) * width / view.scale - frame.margin.x * sx, (exit.y - view.y) * height / view.scale - frame.margin.y * sy)
+  sprite.alpha = current.phase === 'revealing' ? current.cover : 1
+  if (application.stage.children.at(-1) !== sprite) application.stage.addChild(sprite)
+}
+
+function resizeRenderer(width: number, height: number) {
+  if (!application) return
+  const next = getGardenSceneFrame(width, height, !!activeGarden.value)
+  if (application.renderer.screen.width === next.width && application.renderer.screen.height === next.height && drawingFrame.value.viewWidth === next.viewWidth && drawingFrame.value.viewHeight === next.viewHeight) return
+  drawingFrame.value = next
+  application.stage.position.set(next.margin.x, next.margin.y)
+  application.renderer.resize(next.width, next.height)
+  syncRetainedFrame()
+  if (retainedFrame) paintFrame(true)
+}
+
+function revealPrepared(token: number) {
+  if (retainedFrame) retainedFrame.exit = { ...controller.state.transform }
+  controller.markPrepared(token, performance.now())
+  advanceTransition()
+}
+
+function focusForGarden(id?: GardenId): GardenTransitionFocus {
+  if (!rendered?.gardenId && id) {
+    const tile = overviewPlaces.value.find(place => place.garden.id === id)
+    if (tile) return { x: (tile.x + tile.width / 2) / world.value.width, y: (tile.y + tile.height / 2) / world.value.height, scale: 1.8 }
+  }
+  return { x: .5, y: .5, scale: 1.18 }
+}
+
+function publishTransition() {
+  transition.value = controller.state
+  syncRetainedFrame()
+  const current = transition.value
+  if (current.requested?.kind === 'memorial') detailState.value = current.phase === 'idle' ? 'ready' : current.phase === 'revealing' ? 'entering' : 'preparing'
+  else if (current.phase === 'idle') detailState.value = 'none'
+  if (current.phase === 'idle' && current.displayed) emit('displayed', current.displayed.gardenId)
+  if (current.phase === 'idle') restoringSource = false
+}
+
+function advanceTransition() {
+  cancelAnimationFrame(transitionFrame)
+  clearTimeout(loaderTimer)
+  if (disposed) return
+  const now = performance.now()
+  let current = controller.update(now)
+  const target = current.requested
+  if (target && state.value === 'ready' && current.phase !== 'idle') {
+    if (target.kind === 'memorial' || (target.gardenId === props.gardenId && dataReady.value)) controller.markDataReady(current.token, now)
+    else if (target.gardenId === props.gardenId && props.placesState === 'error') controller.fail(current.token, now)
+  }
+  current = controller.state
+  if (current.canPrepare && controller.beginPreparation(current.token, now)) {
+    const token = current.token
+    // Keep the cached source above generation until the target's first paint.
+    prepareFrame = requestAnimationFrame(() => {
+      prepareFrame = requestAnimationFrame(() => {
+        if (disposed || token !== controller.state.token) return
+        prepareFrame = 0
+        prepareSafely(() => {
+          if (target?.kind === 'memorial') syncDetail(token)
+          else {
+            if (rendered?.gardenId !== target?.gardenId) reset()
+            disposeDetail()
+            detailMemorial.value = undefined
+            emit('detail', false)
+            renderScene()
+            if (restoreCamera) {
+              Object.assign(camera, restoreCamera)
+              restoreCamera = undefined
+              drawFrame()
+            }
+          }
+        })
+      })
+    })
+  }
+  publishTransition()
+  if (transitionPhase.value === 'revealing' || transitionPhase.value === 'idle') prepareSafely(drawFrame)
+  if (transitionPhase.value === 'approaching' || transitionPhase.value === 'revealing') transitionFrame = requestAnimationFrame(advanceTransition)
+  else if ((transitionPhase.value === 'waiting' || transitionPhase.value === 'preparing') && !transition.value.showLoader) loaderTimer = setTimeout(advanceTransition, 165)
+}
+
+function requestScene(target: SceneTarget, focus = focusForGarden(target.gardenId), skipApproach = false) {
+  if (controller.state.phase === 'idle') {
+    sourceFocusId = document.activeElement?.getAttribute('data-testid') ?? undefined
+    sourceCamera = { ...camera }
+  }
+  cancelAnimationFrame(prepareFrame)
+  cancelAnimationFrame(readyFrame)
+  cancelAnimationFrame(detailFrame)
+  cancelAnimationFrame(frame)
+  cancelAnimationFrame(overviewFrame)
+  renderRevision++
+  detailRevision++
+  application?.stop()
+  captureRetainedFrame()
+  controller.request(target, { now: performance.now(), hasFrame: hasFrame.value, reducedMotion: reducedMotion.value, focus, skipApproach, direction: directionFor(target) })
+  advanceTransition()
+}
+
+function chooseGarden(id: GardenId) {
+  requestScene(mapTarget(id))
+  emit('select', id)
+}
+
+function cancelTransition() {
+  if (!visualBusy.value || !hasFrame.value || restoringSource) return
+  if (detailMemorial.value) { memorialLayer.value?.closeDetail(); return }
+  const source = transition.value.source
+  if (!source) return
+  // Closing the story already dismissed its UI. A second Escape skips the
+  // remaining return animation, rather than restoring a close-up without it.
+  if (returningFromMemorial.value) {
+    if (controller.state.phase !== 'revealing') requestScene(controller.state.requested ?? mapTarget(), undefined, true)
+    controller.setReducedMotion(true, performance.now())
+    advanceTransition()
+    return
+  }
+  cancelAnimationFrame(prepareFrame)
+  cancelAnimationFrame(readyFrame)
+  cancelAnimationFrame(detailFrame)
+  renderRevision++
+  if (rendered?.gardenId === source.gardenId) {
+    controller.cancel(performance.now())
+    sceneReady.value = true
+    publishTransition()
+    drawFrame()
+  } else { restoringSource = true; restoreCamera = { ...sourceCamera }; requestScene(source, undefined, true) }
+  emit('cancel', source.gardenId)
+  const focusId = sourceFocusId
+  if (focusId) nextTick(() => requestAnimationFrame(() => {
+    if (!disposed && controller.state.phase === 'idle' && (document.activeElement === document.body || document.activeElement?.matches('h1'))) document.querySelector<HTMLElement>(`[data-testid="${focusId}"]`)?.focus({ preventScroll: true })
+  }))
+}
+
+function transitionKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && visualBusy.value && hasFrame.value && !document.querySelector('[data-testid="garden-header"] [aria-expanded="true"]')) { event.preventDefault(); event.stopPropagation(); cancelTransition() }
+}
 
 function disposeDetail() {
   detailRevision++
@@ -117,54 +315,45 @@ function disposeDetail() {
   detailScene?.root.removeFromParent()
   detailScene?.destroy()
   detailScene = undefined
-  detailKey = ''
   detailGeometry.value = undefined
   if (sceneRoot) { sceneRoot.visible = true; sceneRoot.alpha = 1 }
   if (surroundings) { surroundings.visible = true; surroundings.alpha = 1 }
   detailState.value = 'none'
 }
 
-function syncDetail() {
+function syncDetail(token = controller.state.token) {
   if (!application || !host.value || !detailMemorial.value || !props.gardenId) return
   const width = host.value.clientWidth, height = host.value.clientHeight
+  resizeRenderer(width, height)
   const memorial = detailMemorial.value
-  const key = `${width}:${height}:${props.gardenId}:${memorial.id}:${memorial.place}`
-  if (key === detailKey) return
   disposeDetail()
-  detailKey = key
   detailState.value = 'preparing'
   detailSteps.value = 0
   const revision = detailRevision
-  const current = () => !disposed && revision === detailRevision && detailMemorial.value?.id === memorial.id
-  // Let Vue paint the veil over the previous frame before doing synchronous
-  // vector/cache work. No travel from map coordinates: the stone is grounded
-  // at its final position from the very first close-up frame.
-  detailFrame = requestAnimationFrame(() => {
-    if (!current()) return
+  const current = () => !disposed && token === controller.state.token && revision === detailRevision && detailMemorial.value?.id === memorial.id
+  // The approach has finished. Only the old composition moved; this stone
+  // starts grounded at its final transform behind the retained source frame.
+  if (!current()) return
+  prepareSafely(() => {
+    const scene = createGardenMemorialScene(width, height, props.gardenId!, memorial.place, drawingFrame.value.margin)
+    detailScene = scene
+    detailGeometry.value = { x: scene.monument.x, y: scene.monument.y, scale: scene.monument.scale.x }
+    detailSteps.value = 1
     detailFrame = requestAnimationFrame(() => {
-      if (!current() || !application || !props.gardenId) return
+      if (!current() || !application) return
       prepareSafely(() => {
-        const scene = createGardenMemorialScene(width, height, props.gardenId!, memorial.place)
-        detailScene = scene
-        detailGeometry.value = { x: scene.monument.x, y: scene.monument.y, scale: scene.monument.scale.x }
-        detailSteps.value = 1
+        application!.stage.addChild(scene.root)
+        scene.update(elapsed)
+        if (sceneRoot) sceneRoot.visible = false
+        if (surroundings) surroundings.visible = false
+        syncAtmosphere(width, height)
+        drawFrame()
+        detailSteps.value = 2
         detailFrame = requestAnimationFrame(() => {
-          if (!current() || !application) return
-          prepareSafely(() => {
-            application!.stage.addChild(scene.root)
-            scene.update(elapsed)
-            if (sceneRoot) sceneRoot.visible = false
-            if (surroundings) surroundings.visible = false
-            syncAtmosphere(width, height)
-            drawFrame()
-            detailSteps.value = 2
-            detailFrame = requestAnimationFrame(() => {
-              if (!current()) return
-              detailFrame = 0
-              detailSteps.value = 3
-              detailState.value = 'entering'
-            })
-          })
+          if (!current()) return
+          detailFrame = 0
+          detailSteps.value = 3
+          revealPrepared(token)
         })
       })
     })
@@ -176,23 +365,25 @@ function displayDetail(memorial?: GardenMemorial) {
   if (!memorial && !detailMemorial.value && !detailScene) return
   detailMemorial.value = memorial
   emit('detail', !!memorial)
-  if (memorial) syncDetail()
+  if (memorial) {
+    const point = getMemorialLayout(world.value.width, world.value.height, memorial.gardenId, displayedRecords.value).places.find(place => place.memorial?.id === memorial.id)
+    const scale = projection.value.scale * camera.zoom
+    const focus = point ? { x: (projection.value.offsetX + camera.x + point.x * scale) / viewportSize.width, y: (projection.value.offsetY + camera.y + point.y * scale) / viewportSize.height, scale: 1.85 } : { x: .5, y: .5, scale: 1.5 }
+    requestScene({ kind: 'memorial', gardenId: memorial.gardenId, memorialId: memorial.id }, focus, !!props.focusId && !interactive.value)
+  }
   else if (state.value === 'error') disposeDetail()
+  else if (controller.state.requested?.kind !== 'memorial' && controller.state.phase !== 'idle') return
+  else if (controller.state.phase !== 'idle' && controller.state.source?.kind !== 'memorial') {
+    controller.cancel(performance.now())
+    disposeDetail()
+    publishTransition()
+    // A resize may already have expanded the backing while the source camera
+    // still uses its former viewport. Reconcile the map before dropping cover.
+    prepareSafely(renderScene)
+  }
   else {
-    cancelAnimationFrame(detailFrame)
-    const revision = ++detailRevision
     detailState.value = 'returning'
-    detailFrame = requestAnimationFrame(() => {
-      detailFrame = requestAnimationFrame(() => {
-        if (disposed || revision !== detailRevision) return
-        prepareSafely(() => {
-          disposeDetail()
-          applyCamera()
-          syncAtmosphere()
-          drawFrame()
-        })
-      })
-    })
+    requestScene(mapTarget(displayedGarden.value), { x: .5, y: .5, scale: 1.1 })
   }
 }
 
@@ -215,7 +406,7 @@ function animateOverview(time: number) {
 
 function syncAtmosphere(width = host.value?.clientWidth ?? 0, height = host.value?.clientHeight ?? 0) {
   if (!application || !width || !height) return
-  if (!props.gardenId) {
+  if (!activeGarden.value) {
     atmosphere?.destroy()
     atmosphere = undefined
     return
@@ -223,7 +414,7 @@ function syncAtmosphere(width = host.value?.clientWidth ?? 0, height = host.valu
   if (!atmosphere && effectsEnabled.value && effectsSupported.value) {
     let candidate: ReturnType<typeof createGardenAtmosphere> | undefined
     try {
-      candidate = createGardenAtmosphere(width, height, props.gardenId)
+      candidate = createGardenAtmosphere(width, height, activeGarden.value)
       if (!candidate.prepare(application.renderer as WebGLRenderer)) throw new Error('Atmospheric shader unavailable')
       atmosphere = candidate
     } catch {
@@ -232,13 +423,14 @@ function syncAtmosphere(width = host.value?.clientWidth ?? 0, height = host.valu
     }
   }
   if (!atmosphere) return
-  atmosphere.setGarden(props.gardenId)
-  atmosphere.resize(width, height)
+  atmosphere.setGarden(activeGarden.value)
+  atmosphere.resize(width, height, drawingFrame.value.margin)
   atmosphere.setFocus(!!detailScene, detailScene?.layout.visual)
   atmosphere.setView(detailScene?.atmosphereView ?? { x: projection.value.offsetX + camera.x, y: projection.value.offsetY + camera.y, scale: projection.value.scale * camera.zoom })
   atmosphere.setEnabled(effectsEnabled.value && effectsSupported.value)
   atmosphere.update(elapsed)
   if (application.stage.children.at(-1) !== atmosphere.root) application.stage.addChild(atmosphere.root)
+  syncRetainedFrame()
 }
 
 function toggleEffects() {
@@ -246,8 +438,11 @@ function toggleEffects() {
   try { localStorage.setItem('petmemoreal_garden_effects', effectsEnabled.value ? 'on' : 'off') } catch { /* The current visit still keeps the preference when storage is unavailable. */ }
 }
 
-function drawFrame() {
+function drawFrame() { paintFrame() }
+
+function paintFrame(force = false) {
   if (!application || disposed || state.value === 'error') return
+  if (!force && (transitionPhase.value === 'approaching' || transitionPhase.value === 'waiting' || transitionPhase.value === 'error')) return
   try { application.render() }
   catch (error) {
     // Decorative light is optional; an unsupported filter must not hide the garden.
@@ -270,6 +465,8 @@ function prepareSafely(work: () => void) {
     disposeDetail()
     sceneReady.value = false
     state.value = 'error'
+    controller.fail(controller.state.token, performance.now())
+    publishTransition()
   }
 }
 
@@ -277,13 +474,22 @@ function finishScene() {
   cancelAnimationFrame(readyFrame)
   const snapshot = rendered
   const revision = renderRevision
+  const token = controller.state.token
   readyFrame = requestAnimationFrame(() => {
-    if (!disposed && revision === renderRevision && snapshot && rendered === snapshot && dataReady.value && snapshot.gardenId === props.gardenId && snapshot.memorials === props.memorials && snapshot.locale === locale.value) { hasFrame.value = true; sceneReady.value = true }
+    if (!disposed && revision === renderRevision && snapshot && rendered === snapshot && dataReady.value && snapshot.gardenId === props.gardenId && snapshot.memorials === props.memorials && snapshot.locale === locale.value) {
+      hasFrame.value = true
+      sceneReady.value = true
+      displayedGarden.value = snapshot.gardenId
+      displayedRecords.value = snapshot.memorials
+      revealPrepared(token)
+    }
   })
 }
 
-function retry() {
+async function retry() {
   if (props.placesState === 'error') emit('retry')
+  await nextTick()
+  requestScene(mapTarget(), undefined, true)
   if (state.value === 'error') start()
 }
 
@@ -307,7 +513,8 @@ function applyCamera() {
     surroundings.position.set(x, y)
     Object.assign(surroundingTransform, { scale, x, y })
   }
-  visibleChunks.value = updateVisibility?.({ left: -x / scale, top: -y / scale, right: (host.value.clientWidth - x) / scale, bottom: (host.value.clientHeight - y) / scale }) ?? 0
+  const { margin } = drawingFrame.value
+  visibleChunks.value = updateVisibility?.({ left: (-margin.x - x) / scale, top: (-margin.y - y) / scale, right: (host.value.clientWidth + margin.x - x) / scale, bottom: (host.value.clientHeight + margin.y - y) / scale }) ?? 0
   scheduleRender()
 }
 
@@ -324,7 +531,8 @@ function updateSurroundings(width: number, height: number) {
   surroundingBounds.value = undefined
   surroundingKey = key
   if (!props.gardenId) return
-  const bounds = getGardenEnvironmentBounds(width, height, projection.value)
+  const { margin } = drawingFrame.value
+  const bounds = getGardenEnvironmentBounds(width + margin.x * 2, height + margin.y * 2, { ...projection.value, offsetX: projection.value.offsetX + margin.x, offsetY: projection.value.offsetY + margin.y })
   const paths = getExtendedGardenPaths(bounds, props.gardenId)
   const streams = getGardenOuterStream(bounds, props.gardenId)
   const corridors = [...getGardenExtendedRouteObstacles(bounds, props.gardenId), ...streams.flatMap(stream => streamBounds(stream.points, 25))]
@@ -344,26 +552,25 @@ function updateSurroundings(width: number, height: number) {
 }
 
 function render() {
-  cancelAnimationFrame(prepareFrame)
-  cancelAnimationFrame(readyFrame)
-  const revision = ++renderRevision
-  if (!application || !host.value || disposed || state.value === 'error') return
-  if (!dataReady.value) { sceneReady.value = false; return }
+  if (!host.value || disposed) return
+  Object.assign(viewportSize, { width: host.value.clientWidth, height: host.value.clientHeight })
+  if (!application || state.value === 'error') return
+  if (controller.state.phase !== 'idle') { prepareSafely(() => resizeRenderer(host.value!.clientWidth, host.value!.clientHeight)); advanceTransition(); return }
+  if (!dataReady.value && rendered?.gardenId === props.gardenId) return
+  if (rendered && rendered.gardenId === props.gardenId && rendered.memorials !== props.memorials && JSON.stringify(rendered.memorials) === JSON.stringify(props.memorials)) {
+    rendered.memorials = props.memorials
+    displayedRecords.value = props.memorials
+  }
   const changed = !rendered || rendered.gardenId !== props.gardenId || rendered.locale !== locale.value || rendered.memorials !== props.memorials || rendered.seed !== sessionSeed.value
-  if (!changed) { prepareSafely(renderScene); return }
-  sceneReady.value = false
-  // A pair of frames gives the browser a paint opportunity for the retained,
-  // blurred scene before preparing the next garden on this same renderer.
-  prepareFrame = requestAnimationFrame(() => {
-    prepareFrame = requestAnimationFrame(() => {
-      if (!disposed && revision === renderRevision) { prepareFrame = 0; prepareSafely(renderScene) }
-    })
-  })
+  if (changed) { requestScene(mapTarget(), undefined, true); return }
+  if (detailMemorial.value) requestScene({ kind: 'memorial', gardenId: displayedGarden.value, memorialId: detailMemorial.value.id }, undefined, true)
+  else prepareSafely(renderScene)
 }
 
 function renderScene() {
   if (!application || !host.value || disposed) return
   if (!dataReady.value) { sceneReady.value = false; return }
+  activeGarden.value = props.gardenId
   const width = host.value.clientWidth
   const height = host.value.clientHeight
   if (!width || !height) return
@@ -373,7 +580,7 @@ function renderScene() {
   const worldH = fixed?.height ?? Math.round(height / scale)
   projection.value = getGardenProjection(width, height, worldW, worldH, props.gardenId ? 16 : 0)
   resize(width, height, projection.value.width, projection.value.height)
-  application.renderer.resize(width, height)
+  resizeRenderer(width, height)
   if (world.value.width !== worldW || world.value.height !== worldH) world.value = { width: worldW, height: worldH }
   // Viewport changes move the camera, retaining the same world and cached chunks.
   if (rendered?.app === application && rendered.width === worldW && rendered.height === worldH
@@ -381,17 +588,20 @@ function renderScene() {
     updateSurroundings(width, height)
     syncAtmosphere(width, height)
     applyCamera()
-    if (detailMemorial.value) syncDetail()
-    if (!sceneReady.value) finishScene()
+    disposeDetail()
+    animate?.(elapsed)
+    drawFrame()
+    if (!sceneReady.value || controller.state.phase === 'preparing') finishScene()
     return
   }
   disposeDetail()
   const scene = createGardenScene(worldW, worldH, findDemoGarden(props.gardenId), t, props.memorials)
   for (const child of application.stage.removeChildren()) {
-    if (child !== surroundings && child !== atmosphere?.root) child.destroy({ children: true, context: true })
+    if (child !== surroundings && child !== atmosphere?.root && child !== retainedFrame?.sprite) child.destroy({ children: true, context: true })
   }
   if (surroundings) application.stage.addChild(surroundings)
   application.stage.addChild(scene.root)
+  if (retainedFrame) application.stage.addChild(retainedFrame.sprite)
   updateSurroundings(width, height)
   sceneRoot = scene.root
   sceneRoot.scale.set(projection.value.scale * camera.zoom)
@@ -412,7 +622,6 @@ function renderScene() {
   drawFrame()
   hasFrame.value = true
   rendered = { app: application, width: worldW, height: worldH, gardenId: props.gardenId, locale: locale.value, memorials: props.memorials, seed: sessionSeed.value }
-  if (detailMemorial.value) syncDetail()
   finishScene()
 }
 
@@ -425,6 +634,7 @@ async function start() {
   const currentAttempt = ++attempt
   observer?.disconnect()
   if (application) {
+    disposeRetainedFrame()
     disposeDetail()
     atmosphere?.destroy()
     atmosphere = undefined
@@ -451,7 +661,6 @@ async function start() {
     app.canvas.setAttribute('role', 'img')
     host.value!.appendChild(app.canvas)
     intersection?.observe(host.value!)
-    render()
     app.ticker.maxFPS = 30
     app.ticker.add((ticker) => {
       elapsed += Math.min(ticker.deltaMS, 100) / 1000
@@ -462,6 +671,7 @@ async function start() {
     observer = new ResizeObserver(render)
     observer.observe(host.value!)
     state.value = 'ready'
+    render()
   } catch {
     if (app.renderer) app.destroy({ removeView: true }, { children: true, context: true })
     application = undefined
@@ -477,14 +687,24 @@ async function start() {
   }
 }
 
-watch(() => props.gardenId, () => { displayDetail(); sceneReady.value = false; overviewHovered.value = undefined; cancelAnimationFrame(overviewFrame); reset(); modalOpen.value = false; render() })
+watch(() => props.gardenId, () => {
+  const target = mapTarget()
+  if (!sameTarget(controller.state.requested, target)) requestScene(target)
+  overviewHovered.value = undefined
+  modalOpen.value = false
+  render()
+})
 watch(locale, render)
-watch(() => props.memorials, () => { sceneReady.value = false; render() })
-watch(() => props.placesState, () => { if (!dataReady.value) sceneReady.value = false; render() })
-watch(sessionSeed, () => { displayDetail(); sceneReady.value = false; reset(); modalOpen.value = false; render() })
+watch(() => props.memorials, () => {
+  if (controller.state.phase === 'preparing' && controller.state.requested?.kind !== 'memorial') requestScene(mapTarget(), undefined, true)
+  else render()
+})
+watch(() => props.placesState, render)
+watch(sessionSeed, () => { modalOpen.value = false; requestScene(mapTarget(), undefined, true) })
 watch(camera, applyCamera, { flush: 'sync' })
 watch(moving, syncMotion)
 watch(effectsEnabled, () => { syncAtmosphere(); drawFrame() })
+watch(reducedMotion, value => { controller.setReducedMotion(value, performance.now()); advanceTransition() })
 watch([reducedMotion, visible, inView], () => {
   if (!props.gardenId && (reducedMotion.value || !visible.value || !inView.value)) hoverOverview(overviewHovered.value)
 })
@@ -495,7 +715,9 @@ onMounted(() => {
   readVisibility()
   motionQuery.addEventListener('change', readMotion)
   document.addEventListener('visibilitychange', readVisibility)
+  document.addEventListener('keydown', transitionKeydown, true)
   intersection = new IntersectionObserver(([entry]) => { inView.value = entry?.isIntersecting ?? false })
+  requestScene(mapTarget(), undefined, true)
   start()
 })
 onBeforeUnmount(() => {
@@ -504,12 +726,15 @@ onBeforeUnmount(() => {
   intersection?.disconnect()
   motionQuery?.removeEventListener('change', readMotion)
   document.removeEventListener('visibilitychange', readVisibility)
+  document.removeEventListener('keydown', transitionKeydown, true)
   cancelAnimationFrame(frame)
   cancelAnimationFrame(readyFrame)
   cancelAnimationFrame(overviewFrame)
   cancelAnimationFrame(prepareFrame)
-  clearTimeout(revealTimer)
+  cancelAnimationFrame(transitionFrame)
+  clearTimeout(loaderTimer)
   disposeDetail()
+  disposeRetainedFrame()
   animate = undefined
   sceneRoot = undefined
   surroundings = undefined
@@ -531,6 +756,19 @@ onBeforeUnmount(() => {
     :class="{ 'camera-enabled': gardenId && !detailMemorial && interactive, 'camera-dragging': dragging && !detailMemorial }"
     :data-state="viewState"
     :data-transition="transitionPhase"
+    :data-transition-direction="transition.direction"
+    :data-retained-frame="snapshotReady"
+    :data-drawing-width="drawingFrame.width"
+    :data-drawing-height="drawingFrame.height"
+    :data-drawing-margin-x="drawingFrame.margin.x"
+    :data-drawing-margin-y="drawingFrame.margin.y"
+    :data-transition-token="transition.token"
+    :data-displayed-garden="displayedGarden ?? 'overview'"
+    :data-requested-garden="transition.requested?.gardenId ?? 'overview'"
+    :data-transition-scale="transition.transform.scale"
+    :data-transition-x="transition.transform.x * viewportSize.width"
+    :data-transition-y="transition.transform.y * viewportSize.height"
+    :data-transition-blur="transition.blur"
     :data-detail-id="detailMemorial?.id ?? 'none'"
     :data-detail-state="detailState"
     :data-detail-theme="detailMemorial?.gardenId ?? 'none'"
@@ -573,7 +811,7 @@ onBeforeUnmount(() => {
     @wheel="wheel"
     @keydown="keydown"
   >
-    <div ref="host" class="canvas-host" :class="{ 'canvas-hidden': !hasFrame, 'canvas-obscured': visualBusy }" />
+    <div ref="host" class="canvas-host" :class="{ 'canvas-hidden': !hasFrame }" :style="presentationStyle" />
     <div
       v-if="isReady && gardenId"
       class="garden-frame"
@@ -582,7 +820,7 @@ onBeforeUnmount(() => {
       aria-hidden="true"
       :style="{ width: `${projection.width}px`, height: `${projection.height}px`, transform: `translate(${projection.offsetX + camera.x}px, ${projection.offsetY + camera.y}px) scale(${camera.zoom})` }"
     />
-    <nav v-if="interactive && !gardenId" class="garden-choices" :aria-label="t('garden.choose')" data-testid="garden-choices">
+    <nav v-if="interactive && !displayedGarden" class="garden-choices" :aria-label="t('garden.choose')" data-testid="garden-choices">
       <button
         v-for="place in overviewPlaces"
         :key="place.garden.id"
@@ -597,7 +835,7 @@ onBeforeUnmount(() => {
         @pointerleave="hoverOverview()"
         @focus="hoverOverview(place.garden.id)"
         @blur="hoverOverview()"
-        @click="emit('select', place.garden.id)"
+        @click="chooseGarden(place.garden.id)"
       >
         <span class="garden-choice-caption">
           <span class="garden-choice-title">{{ t(`garden.names.${place.garden.id}`) }}<UIcon name="i-lucide-arrow-up-right" aria-hidden="true" /></span>
@@ -605,9 +843,8 @@ onBeforeUnmount(() => {
         </span>
       </button>
     </nav>
-    <GardenMemorials v-if="isReady && gardenId" :key="`${gardenId}:${sessionSeed}`" ref="memorialLayer" :garden-id="gardenId" :width="world.width" :height="world.height" :projection="projection" :camera="camera" :interacting="interacting" :blocked="!interactive" :detail-ready="detailState === 'ready'" :saved="memorials" :focus-id="focusId" :can-create="canCreate && !editing" :paused="paused" :reduced-motion="reducedMotion" :effects-enabled="effectsEnabled" :effects-supported="effectsSupported" @modal="modalOpen = $event" @detail="displayDetail" @pause="paused = !paused" @effects="toggleEffects" @reveal="reveal" @create="emit('create', $event)" />
-    <Transition name="scene-veil" @after-leave="finishReveal">
-    <div v-if="visualBusy" class="canvas-state" data-testid="scene-veil" :data-kind="detailMemorial ? 'memorial' : 'garden'">
+    <GardenMemorials v-if="isReady && displayedGarden" :key="`${displayedGarden}:${sessionSeed}`" ref="memorialLayer" :garden-id="displayedGarden" :width="world.width" :height="world.height" :projection="projection" :camera="camera" :interacting="interacting" :blocked="!interactive" :detail-ready="detailState === 'ready'" :saved="displayedRecords" :focus-id="gardenId === displayedGarden ? focusId : undefined" :can-create="canCreate && !editing" :paused="paused" :reduced-motion="reducedMotion" :effects-enabled="effectsEnabled" :effects-supported="effectsSupported" @modal="modalOpen = $event" @detail="displayDetail" @pause="paused = !paused" @effects="toggleEffects" @reveal="reveal" @create="emit('create', $event)" />
+    <div v-if="visualBusy" class="canvas-state" data-testid="scene-veil" :data-kind="detailMemorial ? 'memorial' : 'garden'" :style="{ '--scene-cover': tintOpacity, '--scene-tint': sceneTint }">
       <AppState
         v-if="viewState === 'error'"
         kind="error"
@@ -616,13 +853,11 @@ onBeforeUnmount(() => {
         retry
         @retry="retry"
       />
-      <div v-else-if="detailState !== 'returning'" class="scene-preparing">
-        <GardenLoading :kind="detailMemorial ? 'memorial' : 'garden'" :completed="detailMemorial ? detailSteps : loadingSteps" :phase="detailMemorial ? detailSteps < 1 ? 'opening' : detailSteps < 2 ? 'stories' : 'places' : loadingPhase" />
-        <button v-if="detailMemorial" type="button" class="scene-cancel" data-testid="scene-cancel" @click="memorialLayer?.closeDetail()">{{ t('memorial.back') }}<UIcon name="i-lucide-arrow-left" aria-hidden="true" /></button>
+      <div v-else class="scene-preparing">
+        <GardenLoading v-if="transition.showLoader" :kind="detailMemorial ? 'memorial' : 'garden'" :completed="detailMemorial ? detailSteps : loadingSteps" :phase="detailMemorial ? detailSteps < 1 ? 'opening' : detailSteps < 2 ? 'stories' : 'places' : loadingPhase" />
       </div>
-      <span v-else class="sr-only" role="status">{{ t('memorial.back') }}</span>
+      <button v-if="hasFrame" type="button" class="scene-cancel" data-testid="scene-cancel" @click="cancelTransition">{{ t(returningFromMemorial ? 'garden.skipTransition' : 'garden.cancelTransition') }}<UIcon name="i-lucide-arrow-left" aria-hidden="true" /></button>
     </div>
-    </Transition>
   </div>
   <div v-if="gardenId && !detailMemorial && (interactive || fullscreen)" class="camera-toolbar" :class="{ 'camera-toolbar-loading': !interactive }" role="group" :aria-label="t('garden.camera.controls')">
     <div v-if="interactive" class="camera-zoom-group" role="group" :aria-label="t('garden.camera.scale')">
@@ -652,11 +887,10 @@ onBeforeUnmount(() => {
 .camera-enabled { touch-action: none; cursor: grab; user-select: none; }
 .camera-dragging { cursor: grabbing; }
 .canvas-wrapper:focus-visible { outline: var(--focus-width) solid var(--color-lantern-300); outline-offset: -2px; }
-.canvas-host { position: absolute; inset: 0; filter: none; transition: filter 280ms ease; }
-.canvas-obscured { filter: blur(8px); }
+.canvas-host { position: absolute; inset: 0; transform-origin: 0 0; }
 .canvas-hidden { visibility: hidden; }
-.canvas-wrapper :deep(.memorial-detail-layer) { transition: opacity 280ms ease; }
-.canvas-wrapper[data-detail-state='preparing'] :deep(.memorial-detail-layer) { opacity: 0; pointer-events: none; }
+.canvas-wrapper :deep(.memorial-detail-layer) { transition: opacity 240ms ease; }
+.canvas-wrapper:not([data-transition='idle']):not([data-transition='revealing']) :deep(.memorial-detail-layer) { opacity: 0; pointer-events: none; }
 .garden-choices { position: absolute; inset: 0; pointer-events: none; }
 .garden-choice { position: absolute; border: 0; border-radius: var(--panel-radius); background: transparent; cursor: pointer; pointer-events: auto; text-align: left; color: var(--garden-control-text); }
 .garden-choice:focus-visible { outline: var(--focus-width) solid var(--color-lantern-300); outline-offset: var(--focus-offset); }
@@ -666,16 +900,15 @@ onBeforeUnmount(() => {
 .garden-choice-description { min-height: 42px; font-size: 14px; line-height: 1.5; color: var(--color-garden-100); }
 .garden-choice:hover .garden-choice-title .iconify { transform: translate(2px, -2px); }
 .garden-choice:active .garden-choice-caption { background: var(--color-garden-900); }
-.canvas-host :deep(canvas) { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: pan-y; }
-.canvas-state { position: absolute; inset: 0; z-index: calc(var(--garden-detail-layer) + 1); display: grid; place-items: center; background: radial-gradient(ellipse at center, #163b3266, #102b2acc); color: #f8f3e8; --ui-primary: #efc681; --focus-color: #efc681; cursor: default; }
+.canvas-host :deep(canvas) { position: absolute; left: var(--drawing-left); top: var(--drawing-top); display: block; width: var(--drawing-width); height: var(--drawing-height); touch-action: pan-y; }
+.canvas-state { position: absolute; inset: 0; z-index: calc(var(--garden-detail-layer) + 1); display: grid; place-items: center; color: #f8f3e8; --ui-primary: #efc681; --focus-color: #efc681; cursor: default; }
+.canvas-state::before { content: ''; position: absolute; inset: 0; background: var(--scene-tint, #173c32); opacity: var(--scene-cover, 1); pointer-events: none; }
+.canvas-state > * { position: relative; }
 .scene-preparing { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; max-height: 100%; padding: 16px; }
 .scene-preparing :deep(.garden-loading) { min-height: 0; flex-shrink: 1; }
-.scene-cancel { flex-shrink: 0; }
-.scene-cancel { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 10px 16px; border-radius: var(--control-radius); color: var(--garden-cream); background: #14372fe6; font-size: 13px; cursor: pointer; }
+.canvas-state > .scene-cancel { position: absolute; top: 20px; left: 20px; display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 10px 16px; border-radius: var(--control-radius); color: var(--garden-cream); background: #14372fe6; font-size: 13px; cursor: pointer; }
 .scene-cancel:hover { background: var(--garden-control-hover); }
 .scene-cancel:focus-visible { outline: var(--focus-width) solid var(--color-lantern-300); outline-offset: var(--focus-offset); }
-.scene-veil-leave-active { transition: opacity 280ms ease; }
-.scene-veil-leave-to { opacity: 0; pointer-events: none; }
 .canvas-state :deep(.app-state), .canvas-state :deep(.app-state h3), .canvas-state :deep(.app-state p) { color: #f8f3e8; }
 .canvas-state :deep(.app-state) { width: min(460px, calc(100% - 40px)); padding: 20px; }
 .canvas-state :deep(.app-state h3) { font: 28px/1.25 var(--font-display); white-space: normal; }
@@ -705,5 +938,5 @@ onBeforeUnmount(() => {
 @media (max-width: 380px) { .garden-choice-caption { padding-inline: 10px; } .garden-choice-title { font-size: 22px; } .garden-choice-title .iconify { display: none; } }
 @media (max-height: 500px) { .camera-toolbar { gap: 4px; } .garden-choice-caption { padding-block: 10px; gap: 4px; } .garden-choice-title { font-size: 24px; } .garden-choice-description { min-height: 21px; } }
 @media (max-height: 500px) and (min-width: 601px) { .camera-toolbar { top: calc(12px + env(safe-area-inset-top)); } }
-@media (prefers-reduced-motion: reduce) { .garden-choice-title .iconify, .canvas-host, .scene-veil-leave-active, .canvas-wrapper :deep(.memorial-detail-layer) { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .garden-choice-title .iconify, .canvas-wrapper :deep(.memorial-detail-layer) { transition: none; } }
 </style>

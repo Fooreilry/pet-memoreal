@@ -16,7 +16,24 @@ async function mapReady(page: Page) {
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-transition', 'idle')
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('aria-busy', 'false')
+  await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-retained-frame', 'false')
   await expect.poll(() => blurAmount(page.locator('.canvas-host'))).toBe(0)
+}
+
+async function expectTranslucentRetainedFrame(page: Page) {
+  await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-retained-frame', 'true')
+  const opacity = await page.getByTestId('scene-veil').evaluate(element => Number(getComputedStyle(element, '::before').opacity))
+  expect(opacity).toBeCloseTo(.2, 2)
+  expect(opacity).toBeLessThan(.4)
+}
+
+async function expectBlockedMap(page: Page) {
+  const controls = page.locator('.memorial-controls')
+  if (await controls.count()) {
+    await expect(controls).toHaveAttribute('aria-hidden', 'true')
+    expect(await controls.evaluate(element => (element as HTMLElement).inert)).toBe(true)
+  }
+  await expect(page.locator('.garden-hud, .camera-toolbar')).toHaveCount(0)
 }
 
 async function camera(page: Page) {
@@ -33,11 +50,70 @@ async function monumentTransform(page: Page) {
   }))
 }
 
+type RevealSnapshot = {
+  busy: string | null
+  controlsPresent: boolean
+  controlsInert: boolean
+  controlsHidden: string | null
+  hudCount: number
+  toolbarCount: number
+}
+
+async function observeMapReveal(page: Page) {
+  await page.evaluate(() => {
+    const runtime = window as Window & { gardenRevealSnapshots?: Promise<RevealSnapshot[]> }
+    const scene = document.querySelector('.canvas-wrapper')!
+    const samples: RevealSnapshot[] = []
+    runtime.gardenRevealSnapshots = new Promise((resolve) => {
+      const record = () => {
+        const phase = scene.getAttribute('data-transition')
+        if (phase === 'revealing') {
+          const controls = document.querySelector<HTMLElement>('.memorial-controls')
+          samples.push({
+            busy: scene.getAttribute('aria-busy'),
+            controlsPresent: !!controls,
+            controlsInert: controls?.inert ?? false,
+            controlsHidden: controls?.getAttribute('aria-hidden') ?? null,
+            hudCount: document.querySelectorAll('.garden-hud').length,
+            toolbarCount: document.querySelectorAll('.camera-toolbar').length
+          })
+        } else if (phase === 'idle' && samples.length) {
+          observer.disconnect()
+          resolve(samples)
+        }
+      }
+      const observer = new MutationObserver(record)
+      observer.observe(document.querySelector('.garden-stage')!, { attributes: true, childList: true, subtree: true })
+      record()
+    })
+  })
+}
+
+async function expectBlockedReveal(page: Page) {
+  const samples = await page.evaluate(() => (window as Window & { gardenRevealSnapshots?: Promise<RevealSnapshot[]> }).gardenRevealSnapshots)
+  expect(samples?.length).toBeGreaterThan(0)
+  expect(samples!.some(sample => sample.controlsPresent)).toBe(true)
+  for (const sample of samples!) {
+    expect(sample.busy).toBe('true')
+    expect(sample.hudCount).toBe(0)
+    expect(sample.toolbarCount).toBe(0)
+    if (sample.controlsPresent) {
+      expect(sample.controlsInert).toBe(true)
+      expect(sample.controlsHidden).toBe('true')
+    }
+  }
+}
+
 async function holdMainFrames(page: Page) {
   await page.evaluate(() => {
     const runtime = window as Window & { releaseGardenTransitionFrames?: () => void }
     const request = window.requestAnimationFrame.bind(window)
     const cancel = window.cancelAnimationFrame.bind(window)
+    const clock = Object.getOwnPropertyDescriptor(performance, 'now')
+    const frozenTime = performance.now()
+    // request() also publishes a synchronous clock update. Freeze its clock
+    // with RAF so this fixture really holds the first, exact identity frame.
+    Object.defineProperty(performance, 'now', { configurable: true, value: () => frozenTime })
     const queued = new Map<number, FrameRequestCallback>()
     let token = -1
     window.requestAnimationFrame = (callback) => {
@@ -52,6 +128,8 @@ async function holdMainFrames(page: Page) {
     runtime.releaseGardenTransitionFrames = () => {
       window.requestAnimationFrame = request
       window.cancelAnimationFrame = cancel
+      if (clock) Object.defineProperty(performance, 'now', clock)
+      else Reflect.deleteProperty(performance, 'now')
       for (const callback of queued.values()) request(callback)
       queued.clear()
       delete runtime.releaseGardenTransitionFrames
@@ -107,7 +185,8 @@ for (const locale of ['ru', 'en']) {
       await page.getByTestId('garden-choice-lake').click()
       await expect(page).toHaveURL(/\/gardens\?garden=lake$/)
       const scene = page.locator('.canvas-wrapper')
-      await expect(scene).toHaveAttribute('data-transition', 'loading')
+      await expect(scene).toHaveAttribute('data-transition', 'waiting')
+      await expect(scene).toHaveAttribute('data-displayed-garden', 'overview')
       await expect(scene).toHaveAttribute('aria-busy', 'true')
       await expect(page.locator('.canvas-host')).toBeVisible()
       await expect.poll(() => blurAmount(page.locator('.canvas-host'))).toBeGreaterThan(0)
@@ -119,14 +198,12 @@ for (const locale of ['ru', 'en']) {
       await expect(progress).toHaveAttribute('aria-valuemax', '3')
       await expect(page.getByTestId('garden-loading').locator('.garden-loading-stages li')).toHaveText(locale === 'ru' ? ['Пейзаж', 'Истории', 'Места памяти'] : ['Scenery', 'Stories', 'Memorials'])
       await page.screenshot({ path: testInfo.outputPath(`blurred-overview-${locale}.png`), animations: 'disabled', scale: 'css' })
+      await observeMapReveal(page)
       loading.release()
-      await expect(scene).toHaveAttribute('data-transition', 'revealing')
-      await expect(scene).toHaveAttribute('aria-busy', 'true')
-      const controls = page.locator('.memorial-controls')
-      await expect(controls).toHaveAttribute('aria-hidden', 'true')
-      expect(await controls.evaluate(element => (element as HTMLElement).inert)).toBe(true)
-      await expect(page.locator('.garden-hud, .camera-toolbar')).toHaveCount(0)
       await mapReady(page)
+      // Read each reveal's complete UI state in one browser turn. Sequential
+      // driver calls can straddle the fixed 240ms reveal and observe idle.
+      await expectBlockedReveal(page)
       await expect(page.getByTestId(`memorial-${id}`)).toBeVisible()
       await expect(page.getByTestId('empty-lake-3')).toHaveCount(0)
       await expect(page.locator('.memorial-hit')).toHaveCount(10)
@@ -151,21 +228,26 @@ test('a failed neighboring garden retains the previous scene and never exposes t
     const originalCanvas = await page.locator('canvas').elementHandle()
     await page.getByTestId('garden-next').click()
     await expect(page).toHaveURL(/\/gardens\?garden=lake$/)
+    await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-transition', 'waiting')
+    await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-displayed-garden', 'meadow')
     await expect(page.locator('.canvas-host')).toBeVisible()
-    await expect.poll(() => blurAmount(page.locator('.canvas-host'))).toBeGreaterThan(0)
+    await expect.poll(() => blurAmount(page.locator('.canvas-host'))).toBe(0)
+    await expectTranslucentRetainedFrame(page)
     loading.release()
     await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'error')
     await expect(page.getByRole('alert')).toBeVisible()
     await expect(page.locator('.canvas-host')).toBeVisible()
-    await expect(page.locator('.memorial-hit, .garden-hud')).toHaveCount(0)
+    await expectBlockedMap(page)
+    await expect(page.getByTestId('empty-lake-3')).toHaveCount(0)
     unavailable = false
     loading = gate()
     await page.getByRole('alert').getByRole('button').click()
-    await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-transition', 'loading')
+    await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-transition', 'waiting')
     await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '1')
     await expect(page.locator('.canvas-host')).toBeVisible()
-    await expect.poll(() => blurAmount(page.locator('.canvas-host'))).toBeGreaterThan(0)
-    await expect(page.locator('.memorial-hit, .garden-hud, .camera-toolbar')).toHaveCount(0)
+    await expect.poll(() => blurAmount(page.locator('.canvas-host'))).toBe(0)
+    await expectTranslucentRetainedFrame(page)
+    await expectBlockedMap(page)
     await page.screenshot({ path: testInfo.outputPath('blurred-garden-retry.png'), animations: 'disabled', scale: 'css' })
     loading.release()
     await mapReady(page)
@@ -189,11 +271,13 @@ test('a late places response cannot replace the garden chosen after returning to
     await visitLocale(page, '/gardens', 'en')
     await mapReady(page)
     await page.getByTestId('garden-choice-lake').click()
-    await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-transition', 'loading')
+    await expect(page).toHaveURL(/\/gardens\?garden=lake$/)
+    await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-transition', 'waiting')
     await page.goBack()
     await expect(page).toHaveURL(/\/gardens$/)
     await mapReady(page)
     await page.getByTestId('garden-choice-grove').click()
+    await expect(page).toHaveURL(/\/gardens\?garden=grove$/)
     await mapReady(page)
     await expect(page.getByTestId('memorial-grove-1')).toBeVisible()
     loading.release()
@@ -228,9 +312,14 @@ for (const reducedMotion of ['reduce', 'no-preference'] as const) {
       if (isMobile) await summary.tap()
       else await summary.click()
       await expect(scene).toHaveAttribute('data-detail-state', 'preparing')
+      await expect(scene).toHaveAttribute('data-transition', reducedMotion === 'reduce' ? 'preparing' : 'approaching')
       await expect(scene).toHaveAttribute('aria-busy', 'true')
       await expect(page.locator('.canvas-host')).toBeVisible()
-      await expect.poll(() => blurAmount(page.locator('.canvas-host'))).toBeGreaterThan(0)
+      // Held animation frames retain the beginning of the approach: no blur or
+      // close-up geometry may jump ahead while the previous composition waits.
+      await expect.poll(() => blurAmount(page.locator('.canvas-host'))).toBe(0)
+      await expect(scene).toHaveAttribute('data-transition-scale', '1')
+      await expect(scene).not.toHaveAttribute('data-detail-monument-scale')
       await expect(page.getByTestId('memorial-summary')).toHaveCount(0)
       await expect(page.locator('canvas')).toHaveCount(1)
       expect(await originalCanvas!.evaluate(element => element.isConnected)).toBe(true)
@@ -238,7 +327,9 @@ for (const reducedMotion of ['reduce', 'no-preference'] as const) {
       expect(await camera(page)).toEqual(before)
       await releaseMainFrames(page)
       if (reducedMotion === 'no-preference') {
-        await expect(scene).toHaveAttribute('data-detail-state', 'entering')
+        // Observe the actual prepared geometry; the 240ms reveal itself may
+        // finish between Playwright's polling intervals on a busy GPU.
+        await expect(scene).toHaveAttribute('data-detail-monument-scale', /\d/)
         const initial = await monumentTransform(page)
         expect(Object.values(initial).every(Number.isFinite)).toBe(true)
         expect(initial.scale).toBeGreaterThan(0)
@@ -279,6 +370,7 @@ test('Escape cancels a preparing memorial before its queued frames can reveal a 
   try {
     await page.keyboard.press('Enter')
     await expect(scene).toHaveAttribute('data-detail-state', 'preparing')
+    await expect(scene).toHaveAttribute('data-transition', 'approaching')
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('memorial-detail')).toHaveCount(0)
     await releaseMainFrames(page)

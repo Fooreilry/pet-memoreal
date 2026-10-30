@@ -19,6 +19,18 @@ async function detailReady(page: Page, id: string) {
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-detail-id', id)
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-detail-state', 'ready')
   await expect(page.getByTestId('memorial-detail')).toBeVisible()
+  await expect.poll(() => page.locator('.canvas-wrapper').evaluate((scene) => {
+    const host = scene.querySelector<HTMLElement>('.canvas-host')!
+    const canvas = scene.querySelector('canvas')!
+    const width = Number(scene.getAttribute('data-drawing-width'))
+    const height = Number(scene.getAttribute('data-drawing-height'))
+    const marginX = Number(scene.getAttribute('data-drawing-margin-x'))
+    const marginY = Number(scene.getAttribute('data-drawing-margin-y'))
+    const density = Math.min(devicePixelRatio || 1, 2)
+    return Math.max(Math.abs(width - host.clientWidth - marginX * 2), Math.abs(height - host.clientHeight - marginY * 2),
+      Math.abs(canvas.clientWidth - width), Math.abs(canvas.clientHeight - height),
+      Math.abs(canvas.width / density - width), Math.abs(canvas.height / density - height))
+  })).toBeLessThanOrEqual(1)
 }
 
 async function within(element: Locator, bounds: Locator) {
@@ -159,7 +171,14 @@ test('close-up weather and movement share the garden controls and freeze without
     const visual = (await page.getByTestId('memorial-detail-visual').boundingBox())!
     // Focus rings extend outside button masks; compare the landscape below the HUD.
     const headerHeight = Math.min(96, visual.height * .4)
-    return page.screenshot({ clip: { x: visual.x, y: visual.y + headerHeight, width: visual.width, height: visual.height - headerHeight }, animations: 'disabled' })
+    // Chrome does not preserve a device-aligned fractional clip end to end.
+    // Capture whole CSS pixels inside the visual window, excluding its final
+    // fractional boundary row, while keeping exact equality for the landscape.
+    const left = Math.ceil(visual.x)
+    const top = Math.ceil(visual.y + headerHeight)
+    const right = Math.floor(visual.x + visual.width)
+    const bottom = Math.floor(visual.y + visual.height) - 1
+    return page.screenshot({ clip: { x: left, y: top, width: right - left, height: bottom - top }, animations: 'disabled', scale: 'css' })
   }
   await motion.click()
   await expect(scene).toHaveAttribute('data-motion', 'paused')
@@ -172,7 +191,17 @@ test('close-up weather and movement share the garden controls and freeze without
   await expect.poll(async () => Buffer.compare(frame, await detailFrame())).not.toBe(0)
   await effects.click()
   await expect(scene).toHaveAttribute('data-effects', 'on')
-  await expect.poll(async () => Buffer.compare(frame, await detailFrame())).toBe(0)
+  let restoredFrame: Buffer | undefined
+  try {
+    await expect.poll(async () => {
+      restoredFrame = await detailFrame()
+      return Buffer.compare(frame, restoredFrame)
+    }).toBe(0)
+  } catch (error) {
+    await testInfo.attach('paused-weather-initial', { body: frame, contentType: 'image/png' })
+    if (restoredFrame) await testInfo.attach('paused-weather-restored', { body: restoredFrame, contentType: 'image/png' })
+    throw error
+  }
   await motion.click()
   await expect(scene).toHaveAttribute('data-motion', 'running')
   await page.screenshot({ path: testInfo.outputPath('animated-lake-detail.png'), animations: 'disabled', scale: 'css' })

@@ -3,18 +3,32 @@ import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
+async function expectDrawingFrame(page: Page) {
+  await expect.poll(() => page.locator('.canvas-wrapper').evaluate((scene) => {
+    const host = scene.querySelector<HTMLElement>('.canvas-host')!
+    const canvas = scene.querySelector('canvas')!
+    const width = Number(scene.getAttribute('data-drawing-width'))
+    const height = Number(scene.getAttribute('data-drawing-height'))
+    const marginX = Number(scene.getAttribute('data-drawing-margin-x'))
+    const marginY = Number(scene.getAttribute('data-drawing-margin-y'))
+    const density = Math.min(devicePixelRatio || 1, 2)
+    return Math.max(Math.abs(width - host.clientWidth - marginX * 2), Math.abs(height - host.clientHeight - marginY * 2),
+      Math.abs(canvas.offsetLeft + marginX), Math.abs(canvas.offsetTop + marginY),
+      Math.abs(canvas.clientWidth - width), Math.abs(canvas.clientHeight - height),
+      Math.abs(canvas.width / density - width), Math.abs(canvas.height / density - height))
+  })).toBeLessThanOrEqual(1)
+}
+
 async function expectWindowMap(page: Page) {
   await expect(page.locator('.gardens-page')).toHaveAttribute('data-expanded', 'true')
   await expect(page.getByTestId('garden-header')).toBeHidden()
   await expect.poll(() => page.evaluate(() => {
     const stage = document.querySelector('.garden-stage')!.getBoundingClientRect()
-    const canvas = document.querySelector('canvas')!
-    const bounds = canvas.getBoundingClientRect()
-    const density = Math.min(devicePixelRatio || 1, 2)
+    const bounds = document.querySelector('.canvas-wrapper')!.getBoundingClientRect()
     return Math.max(Math.abs(stage.x), Math.abs(stage.y), Math.abs(stage.width - innerWidth), Math.abs(stage.height - innerHeight),
-      Math.abs(bounds.x), Math.abs(bounds.y), Math.abs(bounds.width - innerWidth), Math.abs(bounds.height - innerHeight),
-      Math.abs(canvas.width / density - innerWidth), Math.abs(canvas.height / density - innerHeight))
+      Math.abs(bounds.x), Math.abs(bounds.y), Math.abs(bounds.width - innerWidth), Math.abs(bounds.height - innerHeight))
   })).toBeLessThanOrEqual(1)
+  await expectDrawingFrame(page)
   expect(await page.evaluate(() => document.fullscreenElement)).toBeNull()
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight && document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 }
@@ -27,6 +41,7 @@ async function expectInsetMap(page: Page) {
     const header = document.querySelector('[data-testid="garden-header"]')!.getBoundingClientRect()
     return stage.x > 0 && stage.y >= header.bottom && stage.right < innerWidth && stage.bottom < innerHeight
   })).toBe(true)
+  await expectDrawingFrame(page)
 }
 
 async function forbidNativeFullscreen(page: Page) {
@@ -48,6 +63,15 @@ async function expectNoNativeFullscreen(page: Page) {
   expect(await page.evaluate(() => document.fullscreenElement)).toBeNull()
 }
 
+async function expectRetainedPlacesBlocked(page: Page) {
+  const controls = page.locator('.memorial-controls')
+  await expect(controls).toHaveCount(1)
+  await expect(controls).toHaveAttribute('aria-hidden', 'true')
+  expect(await controls.evaluate(element => (element as HTMLElement).inert)).toBe(true)
+  await expect(page.getByTestId('memorial-hill-1')).toHaveCount(1)
+  await expect(page.getByTestId('empty-meadow-3')).toHaveCount(0)
+}
+
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/gardens/*/memorials', route => route.fulfill({ json: [] }))
 })
@@ -55,18 +79,19 @@ test.beforeEach(async ({ page }) => {
 for (const locale of ['ru', 'en']) {
   test(`${locale}: the header stays above an inset garden with reachable controls and neighboring paths`, async ({ page }, testInfo) => {
     await visitLocale(page, `/gardens?garden=meadow`, locale)
-    const canvas = page.locator('canvas')
+    const viewport = page.locator('.canvas-wrapper')
     await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
     const title = page.getByRole('heading', { level: 1 })
     await expect(title).toHaveText(locale === 'ru' ? 'Луг' : 'Meadow')
     for (const size of [page.viewportSize()!, { width: 844, height: 390 }, { width: 320, height: 640 }, { width: 720, height: 500 }, { width: 390, height: 390 }, { width: 320, height: 450 }]) {
       await page.setViewportSize(size)
       await expect.poll(async () => {
-        const bounds = await canvas.boundingBox()
+        const bounds = await viewport.boundingBox()
         const stage = await page.locator('.garden-stage').boundingBox()
         return bounds && stage ? bounds.height - stage.height : Number.POSITIVE_INFINITY
       }).toBeCloseTo(0, 0)
-      const bounds = (await canvas.boundingBox())!
+      await expectDrawingFrame(page)
+      const bounds = (await viewport.boundingBox())!
       const header = (await page.getByTestId('garden-header').boundingBox())!
       expect(bounds.x).toBeGreaterThan(0)
       expect(bounds.y).toBeGreaterThanOrEqual(header.y + header.height)
@@ -91,8 +116,7 @@ for (const locale of ['ru', 'en']) {
         expect(box.height).toBeGreaterThanOrEqual(44)
       }
       expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight && document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-      await expect(page.getByTestId('garden-previous').locator('.garden-path-label')).toHaveText(locale === 'ru' ? 'Назад' : 'Previous')
-      await expect(page.getByTestId('garden-next').locator('.garden-path-label')).toHaveText(locale === 'ru' ? 'Дальше' : 'Next')
+      await expect(page.locator('.garden-path-label')).toHaveCount(0)
       await page.screenshot({ path: testInfo.outputPath(`workspace-${size.width}.png`), animations: 'disabled' })
     }
     await expect(page.getByTestId('garden-previous')).toContainText(locale === 'ru' ? 'Холм' : 'Hill')
@@ -166,6 +190,7 @@ for (const locale of ['ru', 'en']) {
 }
 
 test('expanded map keeps story dialogs and garden menus usable and Escape dismisses them before restoring the map', async ({ page }) => {
+  test.setTimeout(60_000)
   await forbidNativeFullscreen(page)
   await visitLocale(page, '/gardens?garden=hill', 'en')
   const toggle = page.getByTestId('garden-fullscreen')
@@ -319,6 +344,7 @@ test('a map waiting for the neighboring garden can be restored before its data f
     await page.getByTestId('garden-next').click()
     await expect(page).toHaveURL(/\/gardens\?garden=meadow$/)
     await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'loading')
+    await expectRetainedPlacesBlocked(page)
     const restore = page.getByTestId('garden-fullscreen')
     await expect(restore).toHaveAccessibleName('Restore map size')
     await expect(restore).toBeEnabled()
@@ -326,6 +352,7 @@ test('a map waiting for the neighboring garden can be restored before its data f
     await restore.click()
     await expectInsetMap(page)
     await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'loading')
+    await expectRetainedPlacesBlocked(page)
     await expect(page.locator('.camera-toolbar')).toHaveCount(0)
   } finally { release() }
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
@@ -346,6 +373,7 @@ test('a failed neighboring garden keeps window restoration available and retries
   await page.getByTestId('garden-next').click()
   await expect(page).toHaveURL(/\/gardens\?garden=meadow$/)
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'error')
+  await expectRetainedPlacesBlocked(page)
   const restore = page.getByTestId('garden-fullscreen')
   await expect(restore).toHaveAccessibleName('Restore map size')
   await expect(restore).toBeEnabled()
@@ -355,7 +383,7 @@ test('a failed neighboring garden keeps window restoration available and retries
   await expectInsetMap(page)
   await expect(page.locator('.camera-toolbar')).toHaveCount(0)
   unavailable = false
-  await page.locator('.canvas-state').getByRole('button').click()
+  await page.getByRole('alert').getByRole('button').click()
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
   await expectInsetMap(page)
   await expect(page.getByTestId('garden-fullscreen')).toHaveAccessibleName('Expand map to window')

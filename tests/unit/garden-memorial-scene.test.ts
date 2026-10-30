@@ -123,3 +123,43 @@ test('close-up roots and monument foundations touch a continuous ground plane at
     }
   }
 })
+
+test('close-up overscan fills the reveal frame without moving its monument, roots or weather geography', () => {
+  for (const garden of gardenIds) {
+    for (const [width, height] of [[1440, 900], [390, 768]]) {
+      const margin = { x: 160, y: 100 }
+      const original = createGardenMemorialScene(width!, height!, garden, 1)
+      const extended = createGardenMemorialScene(width!, height!, garden, 1, margin)
+      try {
+        assert.deepEqual(extended.layout, original.layout)
+        assert.deepEqual(extended.target, original.target)
+        assert.deepEqual(extended.atmosphereView, original.atmosphereView)
+        assert.equal(extended.groundY, original.groundY)
+        assert.deepEqual(extended.contacts.map(({ kind, x, y, size }) => ({ kind, x, y, size })), original.contacts.map(({ kind, x, y, size }) => ({ kind, x, y, size })))
+        assert.equal(extended.monument.x, original.monument.x)
+        assert.equal(extended.monument.y, original.monument.y)
+        assert.equal(extended.monument.scale.x, original.monument.scale.x)
+        const background = extended.root.getChildByLabel('memorial-scenery')!
+        const bounds = background.getLocalBounds()
+        assert.ok(bounds.minX <= -margin.x && bounds.minY <= -margin.y)
+        assert.ok(bounds.maxX >= width! + margin.x && bounds.maxY >= height! + margin.y)
+        const resolution = background.renderGroup!.textureOptions.resolution!
+        assert.ok(resolution > 0 && resolution <= 2)
+        assert.ok(Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * resolution <= 2048.001, 'the actual extended cache fits the texture budget')
+        assert.equal(descendants(extended.root).length, descendants(original.root).length, 'overscan extends existing artwork rather than adding scene nodes')
+      } finally { original.destroy(); extended.destroy() }
+    }
+  }
+})
+
+test('close-up overscan keeps small-view safety margins finite and clamps malformed input', () => {
+  for (const margin of [{ x: 32, y: 32 }, { x: Number.NaN, y: -30 }, { x: Infinity, y: 1e9 }]) {
+    const scene = createGardenMemorialScene(1, 1, 'meadow', 1, margin)
+    try {
+      const bounds = scene.root.getChildByLabel('memorial-scenery')!.getLocalBounds()
+      assert.ok([bounds.minX, bounds.minY, bounds.maxX, bounds.maxY].every(Number.isFinite))
+      if (margin.x === 32) assert.ok(bounds.minX <= -32 && bounds.maxX >= 33)
+      if (margin.y === 32) assert.ok(bounds.minY <= -32 && bounds.maxY >= 33)
+    } finally { scene.destroy() }
+  }
+})
