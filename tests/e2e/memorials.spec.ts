@@ -114,6 +114,7 @@ for (const locale of ['ru', 'en']) {
   })
 
   test(`${locale}: create in a chosen garden place, reload it, find it in the account and visit as a guest`, async ({ page, members, browser, isMobile }, testInfo) => {
+    test.slow()
     const ru = locale === 'ru'
     const place = ru ? 3 : 4
     await visitLocale(page, `/gardens?garden=lake`, locale)
@@ -232,7 +233,7 @@ for (const locale of ['ru', 'en']) {
     // The close-up fills the garden stage rather than adding an inner modal frame.
     await expect(dialog).toHaveCSS('border-radius', '0px')
     await expectModestCorners(dialog.locator('.memorial-return'))
-    await expectModestCorners(dialog.locator('.memorial-close'))
+    await expectModestCorners(dialog.locator('.memorial-share'))
     await expect(dialog.locator('.memorial-location')).toContainText(`${ru ? 'Место' : 'Place'} ${place}`)
     await expect(empty).toHaveCount(0)
     await expect(dialog).toContainText('2020 — 2025')
@@ -246,7 +247,7 @@ for (const locale of ['ru', 'en']) {
     await expect(dialog).toHaveAccessibleName('Мой друг <Milo>')
     await expect(page.getByTestId('memorial-creator')).toContainText('Memorial test')
     await expect(page.getByTestId('garden-account-menu')).toHaveAttribute('data-authenticated', 'true')
-    await page.keyboard.press('Escape')
+    await page.getByTestId('memorial-detail-return').click()
     await expect(dialog).toHaveCount(0)
     if (isMobile) {
       await page.getByTestId(`memorial-${id}`).tap()

@@ -13,7 +13,11 @@ export function useGardenFullscreen() {
     if (document.querySelector('[role="dialog"][data-state="open"], [role="menu"][data-state="open"], [role="listbox"][data-state="open"], [data-memorial-preview][data-state="open"]')) return
     event.preventDefault()
     fullscreen.value = false
-    nextTick(() => document.querySelector<HTMLButtonElement>('[data-testid="garden-fullscreen"]')?.focus({ preventScroll: true }))
+    nextTick(() => {
+      const fullscreenButton = document.querySelector<HTMLButtonElement>('[data-testid="garden-fullscreen"]')
+      const target = fullscreenButton?.offsetParent ? fullscreenButton : document.querySelector<HTMLButtonElement>('[data-testid="garden-more"]')
+      target?.focus({ preventScroll: true })
+    })
   }
 
   onMounted(() => window.addEventListener('keydown', escape, true))

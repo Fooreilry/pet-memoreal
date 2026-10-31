@@ -124,8 +124,18 @@ for (const locale of ['ru', 'en']) {
     await expect(edit).toBeFocused()
     await edit.click()
     await expect(surname).toHaveValue('Иванова')
+    // Clearing during the modal's entrance can target an input that is still
+    // being initialized. Wait for its final layout and initial focus first.
+    await dialog.evaluate(element => Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished)))
+    await expect(name).toBeFocused()
     await surname.fill('')
-    await save.click()
+    await expect(surname).toHaveValue('')
+    const [clearedSurname] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === '/api/auth/update-user' && response.request().method() === 'POST'),
+      save.click()
+    ])
+    expect(clearedSurname.ok()).toBe(true)
+    expect(clearedSurname.request().postDataJSON().surname).toBe('')
     await expect(dialog).toHaveCount(0)
     await page.reload()
     await expect(page.getByTestId('profile-surname')).toHaveText(ru ? 'Не указана' : 'Not provided')

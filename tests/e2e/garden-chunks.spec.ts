@@ -1,3 +1,4 @@
+import { clickGardenControl } from './helpers/garden-controls'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import type { PublicMemorial } from '../../shared/memorials'
@@ -104,15 +105,17 @@ for (const garden of gardens) {
         await expect(page.getByTestId('memorial-summary')).toBeFocused()
         await page.keyboard.press('Enter')
         await expect(page.getByRole('dialog')).toBeVisible()
-        await page.keyboard.press('Escape')
+        await page.getByTestId('memorial-detail-return').click()
         await expect(page.getByRole('dialog')).toHaveCount(0)
         await expect(button).toBeFocused()
       }
     }
-    await page.getByTestId('garden-camera-reset').click()
+    await clickGardenControl(page, 'garden-camera-reset')
     const visibleAtCenter = Number(await view.getAttribute('data-visible-chunks'))
-    for (let step = 0; step < 4; step++) await page.getByTestId('garden-zoom-in').click()
-    await expect(page.locator('.camera-toolbar output')).toHaveText('244%')
+    const centeredZoom = Number(await view.getAttribute('data-zoom'))
+    const zoomIn = page.getByTestId('garden-zoom-in')
+    for (let step = 0; step < 4 && await zoomIn.isEnabled(); step++) await zoomIn.click()
+    await expect(page.locator('.camera-toolbar output')).toHaveText(`${Math.round(Math.min(4, centeredZoom * 1.25 ** 4) * 100)}%`)
     const visibleZoomed = Number(await view.getAttribute('data-visible-chunks'))
     expect(visibleZoomed).toBeGreaterThan(0)
     expect(visibleZoomed).toBeLessThanOrEqual(visibleAtCenter)
@@ -160,7 +163,7 @@ test('loading a new saved memorial changes its contents without moving any chunk
   await page.goto('/gardens?garden=meadow&memorial=chunk-stability-fixture')
   await expect(page.getByRole('dialog')).toHaveAccessibleName('A familiar friend')
   await expect.poll(() => placement(page)).toEqual(initial)
-  await page.keyboard.press('Escape')
+  await page.getByTestId('memorial-detail-return').click()
   await expect(page.getByTestId('memorial-chunk-stability-fixture')).toBeFocused()
   await expect(page.getByTestId('memorial-chunk-stability-fixture')).toBeInViewport()
 })

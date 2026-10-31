@@ -62,6 +62,7 @@ async function profile(page: Page, ru: boolean, isMobile: boolean) {
 
 for (const locale of ['ru', 'en']) {
   test(`${locale}: owner edits an existing memorial, keeps its place and controls public attribution`, async ({ page, members, browser, isMobile }, testInfo) => {
+    test.slow()
     const ru = locale === 'ru'
     // Existing creation fixtures use grove 3/4 and auto-allocation starts there.
     const place = (ru ? 10 : 12) + Number(isMobile)

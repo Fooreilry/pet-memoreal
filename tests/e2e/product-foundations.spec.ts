@@ -1,3 +1,4 @@
+import { ensureGardenControl } from './helpers/garden-controls'
 import { expect, test } from '@playwright/test'
 import type { Locator } from '@playwright/test'
 import { visitLocale } from './helpers/locale'
@@ -67,7 +68,7 @@ for (const locale of ['ru', 'en']) {
     await page.keyboard.press('Escape')
     await expect(switcher).toHaveAttribute('aria-expanded', 'false')
 
-    const help = page.getByTestId('garden-help')
+    const help = await ensureGardenControl(page, 'garden-help')
     await help.focus()
     await page.keyboard.press('Enter')
     await expect(help).toHaveAttribute('aria-expanded', 'true')

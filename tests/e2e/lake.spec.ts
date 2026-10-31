@@ -1,9 +1,11 @@
+import { clickGardenControl, dismissGardenTools, ensureGardenControl } from './helpers/garden-controls'
 import { openMemorialStory } from './helpers/memorial'
 import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
 async function clearPreview(page: Page) {
+  await dismissGardenTools(page)
   await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur() })
   await page.mouse.move(0, 0)
   await expect(page.getByTestId('memorial-summary')).toHaveCount(0)
@@ -43,15 +45,16 @@ test('the detailed lake opens from its preview and water lilies, mist and shorel
   await expect(page.locator('.memorial-hit[data-monument-kind]')).toHaveCount(4)
   await clearPreview(page)
   await canvas.screenshot({ path: testInfo.outputPath('lake-garden.png') })
+  const initialZoom = Number(await scene.getAttribute('data-zoom'))
   await page.getByTestId('garden-zoom-in').click()
-  await expect(page.locator('.camera-toolbar output')).toHaveText('125%')
+  await expect.poll(async () => Number(await scene.getAttribute('data-zoom'))).toBeCloseTo(Math.min(4, initialZoom * 1.25), 2)
   for (const place of [1, 2, 5, 10]) {
     const stone = page.getByTestId(`memorial-lake-${place}`)
     await stone.focus()
     await expect(stone).toBeInViewport()
     await openMemorialStory(page, stone, isMobile)
     await expect(page.getByRole('dialog').locator('.memorial-location')).toContainText(`Место ${place}`)
-    await page.keyboard.press('Escape')
+    await page.getByTestId('memorial-detail-return').click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(stone).toBeFocused()
   }
@@ -81,14 +84,15 @@ test('lake mist obeys pause and reduced motion while rotation and sparse plants 
   await openMemorialStory(page, first)
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(scene).toHaveAttribute('data-motion', 'paused')
-  await page.keyboard.press('Escape')
+  await page.getByTestId('memorial-detail-return').click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(scene).toHaveAttribute('data-motion', 'running')
   await clearPreview(page)
   const moving = await canvas.screenshot()
   await expect.poll(async () => Buffer.compare(moving, await canvas.screenshot())).not.toBe(0)
   const pause = page.getByTestId('garden-motion')
-  await pause.click()
+  await clickGardenControl(page, 'garden-motion')
+  await dismissGardenTools(page)
   await expect(scene).toHaveAttribute('data-motion', 'paused')
   const still = await canvas.screenshot()
   // Several frames expose an accidentally running mist or water animation.
@@ -112,6 +116,7 @@ test('lake mist obeys pause and reduced motion while rotation and sparse plants 
     await expect(page.locator('canvas')).toHaveCount(1)
     await expect(page.locator('.memorial-hit')).toHaveCount(count)
     await expect(page.locator('.memorial-hit[data-monument-kind]')).toHaveCount(4)
+    await ensureGardenControl(page, 'garden-motion')
     await expect(pause).toHaveAttribute('aria-pressed', 'true')
     await clearPreview(page)
     await canvas.screenshot({ path: testInfo.outputPath(`plants-${garden}.png`) })

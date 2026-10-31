@@ -1,3 +1,4 @@
+import { clickGardenControl, dismissGardenTools } from './helpers/garden-controls'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { visitLocale } from './helpers/locale'
@@ -14,6 +15,9 @@ async function positions(page: Page) {
 async function expectWholeMap(page: Page) {
   const view = page.locator('.canvas-wrapper')
   await expect(view).toHaveAttribute('data-state', 'ready')
+  // Explicitly return from any manually selected zoom to the complete map.
+  await dismissGardenTools(page)
+  for (let step = 0; step < 8 && Number(await view.getAttribute('data-zoom')) > 1; step++) await page.getByTestId('garden-zoom-out').click()
   await expect(view).toHaveAttribute('data-zoom', '1.000')
   await expect(view).toHaveAttribute('data-camera-x', '0.00')
   await expect(view).toHaveAttribute('data-camera-y', '0.00')
@@ -106,7 +110,7 @@ test('the continuous surroundings follow the same camera while the core keeps it
   expect(await positions(page)).toEqual(original)
   await view.screenshot({ path: testInfo.outputPath('continuous-garden-pan.png'), animations: 'disabled' })
 
-  await page.getByTestId('garden-camera-reset').click()
+  await clickGardenControl(page, 'garden-camera-reset')
   await expectWholeMap(page)
   await expectContinuousCoverage()
   await page.setViewportSize({ width: 820, height: 500 })
@@ -135,7 +139,7 @@ test('all four complete maps and their frames fit at 100% on portrait, desktop a
   }
   await page.getByTestId('garden-zoom-in').click()
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-zoom', '1.250')
-  await page.getByTestId('garden-camera-reset').click()
+  await clickGardenControl(page, 'garden-camera-reset')
   await expectWholeMap(page)
   expect(errors).toEqual([])
 })

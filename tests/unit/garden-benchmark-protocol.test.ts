@@ -121,12 +121,25 @@ test('camera and input scenarios require consumed movement and preserve its prov
   assert.equal(validateGardenBenchmarkRun(sample, { ...expected, scenario: 'camera', movement: { samples: 5, changes: 5 } }).valid, true)
   assert.ok(validateGardenBenchmarkRun(sample, { ...expected, scenario: 'camera', movement: { samples: 5, changes: 4 } }).reasons.includes('camera-did-not-move-continuously'))
   const input = { ...expected, scenario: 'pointer-wheel' as const, interactions: { pointerMoves: 5, wheels: 8 }, inputKind: 'trusted-playwright' as const }
-  assert.ok(validateGardenBenchmarkRun(sample, input).reasons.includes('input-did-not-render'))
-  sample.counts.manualRenders = 5
   assert.deepEqual(validateGardenBenchmarkRun(sample, input), { valid: true, reasons: [], inputKind: 'trusted-playwright' })
   assert.equal(validateGardenBenchmarkRun(sample, { ...input, inputKind: 'synthetic-events' }).valid, true)
   assert.ok(validateGardenBenchmarkRun(sample, { ...input, interactions: { pointerMoves: 0, wheels: 0 } }).reasons.includes('input-not-consumed'))
   assert.ok(validateGardenBenchmarkRun(sample, { ...input, interactions: { pointerMoves: 20, wheels: 7 } }).reasons.includes('input-not-consumed'))
+})
+
+test('pointer input accepts automatic-only rendering but still requires enough completed main draws', () => {
+  const sample = report()
+  const input: GardenBenchmarkExpected = {
+    ...expected, scenario: 'pointer-wheel', interactions: { pointerMoves: 5, wheels: 8 }, inputKind: 'trusted-playwright'
+  }
+  assert.equal(sample.counts.manualRenders, 0)
+  assert.deepEqual(validateGardenBenchmarkRun(sample, input), { valid: true, reasons: [], inputKind: 'trusted-playwright' })
+  // A consumed input timeline and CPU samples do not replace actual main draws.
+  sample.counts.renders = 4
+  assert.deepEqual(validateGardenBenchmarkRun(sample, input).reasons, ['input-did-not-render'])
+  sample.counts.renders = 0
+  assert.ok(validateGardenBenchmarkRun(sample, input).reasons.includes('missing-render-samples'))
+  assert.ok(validateGardenBenchmarkRun(sample, input).reasons.includes('input-did-not-render'))
 })
 
 test('opening and switching require preparation samples and exact requested transition counts', () => {

@@ -1,3 +1,4 @@
+import { clickGardenControl, dismissGardenTools } from './helpers/garden-controls'
 import { expect, test } from '@playwright/test'
 import type { Page, TestInfo } from '@playwright/test'
 import sharp from 'sharp'
@@ -73,11 +74,12 @@ async function drawingFrame(page: Page) {
 }
 
 async function coverageFixture(page: Page) {
+  await dismissGardenTools(page)
   return page.addStyleTag({ content: `
     .canvas-wrapper { background: rgb(255, 0, 255) !important; }
     .canvas-host { filter: none !important; }
     .canvas-state::before { background: transparent !important; }
-    .garden-hud, .camera-toolbar, [data-testid="garden-title"], .garden-choices,
+    .garden-hud, .camera-toolbar, [data-testid="garden-tools-menu"], [data-testid="garden-title"], .garden-choices,
     .memorial-controls, .memorial-detail-layer, .canvas-state > * { visibility: hidden !important; }
   ` })
 }
@@ -293,7 +295,7 @@ test('a memorial close-up extends sky and ground through its gutter while its lo
   await ready(page, 'lake')
   const scene = page.locator('.canvas-wrapper')
   const original = await page.locator('canvas').elementHandle()
-  await page.getByTestId('garden-motion').click()
+  await clickGardenControl(page, 'garden-motion')
   await expect(scene).toHaveAttribute('data-motion', 'paused')
   await page.getByTestId('garden-zoom-in').click()
   await scene.focus()
@@ -324,7 +326,7 @@ test('a memorial close-up extends sky and ground through its gutter while its lo
     })
   } finally { await fixture.evaluate(element => element.remove()) }
   await observeMotion(page)
-  await page.getByTestId('memorial-detail-close').click()
+  await page.getByTestId('memorial-detail-return').click()
   await ready(page, 'lake')
   const history = await page.evaluate(() => (window as Window & { overscanMotion?: MotionSample[] }).overscanMotion ?? [])
   expect(history.some(sample => sample.phase === 'approaching' && sample.direction === 'backward' && sample.scale < .9)).toBe(true)
@@ -344,9 +346,9 @@ test('cancelling a memorial after a resize restores the resized map projection a
   const originalViewport = page.viewportSize()!
   const resizedViewport = { width: originalViewport.width >= 760 ? originalViewport.width - 112 : originalViewport.width + 24, height: originalViewport.height - 72 }
   const stone = page.getByTestId('memorial-lake-1')
-  await page.getByTestId('garden-motion').click()
+  await clickGardenControl(page, 'garden-motion')
   const positionSource = async () => {
-    await page.getByTestId('garden-camera-reset').click()
+    await clickGardenControl(page, 'garden-camera-reset')
     await page.getByTestId('garden-zoom-in').click()
     await scene.focus()
     await page.keyboard.press('ArrowRight')
@@ -404,7 +406,6 @@ test('lake weather covers the newly exposed top and left gutters during a pullba
   await visitLocale(page, '/gardens?garden=lake', 'en')
   await ready(page, 'lake')
   const scene = page.locator('.canvas-wrapper')
-  const effects = page.getByTestId('garden-effects')
   await expect(scene).toHaveAttribute('data-motion', 'paused')
   await expect(scene).toHaveAttribute('data-weather', 'rain')
   const capture = async (name: string) => {
@@ -419,7 +420,7 @@ test('lake weather covers the newly exposed top and left gutters during a pullba
     return frame
   }
   const on = await capture('lake-weather-on-pullback-gutters')
-  await effects.click()
+  await clickGardenControl(page, 'garden-effects')
   await expect(scene).toHaveAttribute('data-weather', 'none')
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   const off = await capture('lake-weather-off-pullback-gutters')
@@ -446,6 +447,6 @@ test('lake weather covers the newly exposed top and left gutters during a pullba
     // pullback. A filter restricted to its former rectangle changes none of it.
     expect(changed / sampled, `${region.name}: weather must continue into newly exposed scenery`).toBeGreaterThan(.01)
   }
-  await effects.click()
+  await clickGardenControl(page, 'garden-effects')
   await expect(scene).toHaveAttribute('data-weather', 'rain')
 })

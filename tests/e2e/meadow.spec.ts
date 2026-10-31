@@ -1,9 +1,11 @@
+import { clickGardenControl, dismissGardenTools, ensureGardenControl } from './helpers/garden-controls'
 import { openMemorialStory } from './helpers/memorial'
 import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
 async function clearPreview(page: Page) {
+  await dismissGardenTools(page)
   await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur() })
   await page.mouse.move(0, 0)
   await expect(page.getByTestId('memorial-summary')).toHaveCount(0)
@@ -58,7 +60,7 @@ test('the flowering meadow opens from the overview and its plants leave all memo
     await expect(stone).toBeInViewport()
     await openMemorialStory(page, stone, isMobile)
     await expect(page.getByRole('dialog').locator('.memorial-location')).toContainText(`Место ${place}`)
-    await page.keyboard.press('Escape')
+    await page.getByTestId('memorial-detail-return').click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(stone).toBeFocused()
   }
@@ -79,7 +81,7 @@ test('the flowering meadow opens from the overview and its plants leave all memo
     await expect(stone).toBeInViewport()
     await openMemorialStory(page, stone, isMobile)
     await expect(page.getByRole('dialog').locator('.memorial-location')).toContainText(`Место ${place}`)
-    await page.keyboard.press('Escape')
+    await page.getByTestId('memorial-detail-return').click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
   }
   expect(images.every(url => new URL(url).origin === new URL(page.url()).origin)).toBe(true)
@@ -106,11 +108,12 @@ test('meadow insects obey pause and reduced motion while rotation and a free pla
   await openMemorialStory(page, first, isMobile)
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(scene).toHaveAttribute('data-motion', 'paused')
-  await page.keyboard.press('Escape')
+  await page.getByTestId('memorial-detail-return').click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(scene).toHaveAttribute('data-motion', 'running')
   const pause = page.getByTestId('garden-motion')
-  await pause.click()
+  await clickGardenControl(page, 'garden-motion')
+  await dismissGardenTools(page)
   await expect(scene).toHaveAttribute('data-motion', 'paused')
   await clearPreview(page)
   const still = await canvas.screenshot()
@@ -134,6 +137,7 @@ test('meadow insects obey pause and reduced motion while rotation and a free pla
   await expect(page.locator('.memorial-hit')).toHaveCount(10)
   await page.getByTestId('garden-previous').click()
   await expect(page).toHaveURL(/garden=meadow$/)
+  await ensureGardenControl(page, 'garden-motion')
   await expect(pause).toHaveAttribute('aria-pressed', 'true')
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await expect(pause).toHaveCount(0)

@@ -1,3 +1,4 @@
+import { clickGardenControl } from './helpers/garden-controls'
 import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
 import ru from '../../i18n/locales/ru.json' with { type: 'json' }
@@ -51,7 +52,7 @@ test('overview hover zooms scenery inside fixed compact cards while captions sta
 test('scenery zoom animates with ambient motion paused and stops after hover settles', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await visitLocale(page, '/gardens?garden=meadow', 'en')
-  await page.getByTestId('garden-motion').click()
+  await clickGardenControl(page, 'garden-motion')
   await page.getByTestId('garden-switch').click()
   await page.getByTestId('garden-overview').focus()
   await page.mouse.move(0, 0)

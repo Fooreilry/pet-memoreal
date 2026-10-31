@@ -152,7 +152,7 @@ test('returning from a memorial in the same garden keeps the expired title hidde
   await openMemorialStory(page, stone, isMobile)
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-detail-state', 'ready')
   expect(await originalHeading!.evaluate(element => element.isConnected)).toBe(true)
-  await page.getByTestId('memorial-detail-close').click()
+  await page.getByTestId('memorial-detail-return').click()
   await ready(page, 'lake')
   await expect(heading).toHaveAttribute('data-title-visible', 'false')
   await expect(heading).toHaveCSS('opacity', '0')

@@ -256,7 +256,7 @@ test('opening the full story zooms the source composition without moving its cam
   expect(new Set(monumentScales).size).toBe(1)
   expect(await layout(page)).toEqual(bounds)
   expect(page.url()).toBe(url)
-  await page.getByTestId('memorial-detail-close').click()
+  await page.getByTestId('memorial-detail-return').click()
   await ready(page, 'lake')
   expect(await camera(page)).toBe(before)
   expect(page.url()).toBe(url)
@@ -288,14 +288,14 @@ test('a reduced-motion direct memorial link uses actual readiness and remains us
       await page.setViewportSize(size)
       await expect(scene).toHaveAttribute('data-detail-state', 'ready')
       await ready(page, 'lake')
-      await expect(page.getByTestId('memorial-detail-close')).toBeInViewport()
+      await expect(page.getByTestId('memorial-detail-return')).toBeInViewport()
       await expect(scene).toHaveAttribute('data-transition-scale', '1')
       await expect(page.locator('canvas')).toHaveCount(1)
       expect(await originalCanvas!.evaluate(element => element.isConnected)).toBe(true)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true)
     }
     await expect(page).toHaveURL(/\/gardens\?garden=lake&memorial=lake-1&from=directed$/)
-    await expect(page.getByTestId('memorial-detail').locator('.memorial-close')).toBeFocused()
+    await expect(page.getByTestId('memorial-detail').locator('.memorial-return')).toBeFocused()
   } finally { loading.release() }
 })
 
@@ -309,8 +309,11 @@ test('Escape during the first reveal restores the source garden, exact user came
   try {
     await visitLocale(page, '/gardens?garden=lake&from=cancel-test', 'en')
     await ready(page, 'lake')
+    const scene = page.locator('.canvas-wrapper')
+    const initialZoom = Number(await scene.getAttribute('data-zoom'))
     await page.getByTestId('garden-zoom-in').click()
-    await expect(page.locator('.camera-toolbar output')).toHaveText('125%')
+    await expect.poll(async () => Number(await scene.getAttribute('data-zoom'))).toBeCloseTo(Math.min(4, initialZoom * 1.25), 2)
+    const sourceZoom = (await scene.getAttribute('data-zoom'))!
     const sourceCamera = await camera(page)
     const sourceLayout = await layout(page)
     const sourceUrl = page.url()
@@ -339,7 +342,7 @@ test('Escape during the first reveal restores the source garden, exact user came
     await ready(page, 'lake')
     expect(await camera(page)).toBe(sourceCamera)
     expect(await layout(page)).toEqual(sourceLayout)
-    await expect(page.locator('.camera-toolbar output')).toHaveText('125%')
+    await expect(scene).toHaveAttribute('data-zoom', sourceZoom)
     await expect(page.getByTestId('memorial-lake-1')).toBeVisible()
     await expect(page.getByTestId('memorial-grove-1')).toHaveCount(0)
     await expect(page.locator('canvas')).toHaveCount(1)

@@ -157,9 +157,21 @@
     "edit": "Edit",
     "close": "Close story",
     "back": "Return to the garden",
+    "backShort": "Garden",
+    "sharing": {
+      "button": "Share",
+      "label": "Share the memorial: {name}",
+      "title": "{name} — PetMemoreal",
+      "text": "A place to remember {name} in the {garden} garden.",
+      "copied": "Link copied",
+      "manual": "Memorial link",
+      "manualHint": "Automatic copying was unavailable. Copy the link from this field."
+    },
     "detail": {
       "scene": "Memorial in the {garden} garden",
       "reading": "Your pet's story",
+      "expandCard": "Expand memorial card",
+      "collapseCard": "Collapse memorial card",
       "controls": "Memorial atmosphere",
       "atmospheres": {
         "meadow": "A sunlit clearing",
@@ -242,14 +254,15 @@
     "camera": {
       "label": "Garden grounds: pan and zoom",
       "controls": "Garden camera controls",
+      "more": "More map controls",
       "in": "Zoom in on the garden",
       "out": "Zoom out of the garden",
       "scale": "Garden zoom level",
-      "reset": "Whole garden",
+      "reset": "Reset view",
       "fullscreen": "Expand map to window",
       "exitFullscreen": "Restore map size",
       "instructions": "Garden controls and help",
-      "help": "Drag with a mouse or finger. Zoom with the wheel, a two-finger pinch or the + and − buttons. With a keyboard: focus the map, use arrows and +/−, and press Home for the whole garden."
+      "help": "Drag with a mouse or finger. Zoom with the wheel, a two-finger pinch or the + and − buttons. Zoom out to 100% to see the whole garden. With a keyboard: focus the map, use arrows and +/−, and press Home to reset the view."
     },
     "landscapes": {
       "meadow": "Flowering clearings, clover, soft grass and sunlit paths",

@@ -1,3 +1,4 @@
+import { clickGardenControl, dismissGardenTools, ensureGardenControl } from './helpers/garden-controls'
 import { openMemorialStory } from './helpers/memorial'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
@@ -9,6 +10,7 @@ const gardens = ['meadow', 'lake', 'grove', 'hill'] as const
 async function ready(page: Page) {
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'ready')
   await expect(page.locator('canvas')).toHaveCount(1)
+  if (await page.getByTestId('garden-more').isVisible()) await ensureGardenControl(page, 'garden-effects')
 }
 
 async function chooseGarden(page: Page, id: typeof gardens[number]) {
@@ -20,13 +22,21 @@ async function chooseGarden(page: Page, id: typeof gardens[number]) {
 }
 
 async function sceneryFrame(page: Page) {
+  await dismissGardenTools(page)
+  // Escape restores focus to More; its outline extends beyond the toolbar mask.
+  await page.evaluate(() => {
+    const active = document.activeElement
+    if (active instanceof HTMLElement && active.closest('.camera-toolbar, .garden-tools-menu')) active.blur()
+  })
+  await page.mouse.move(0, 0)
   // A changed toggle must not count as proof that the WebGL scenery changed.
   // Exclude controls and the independently fading title, retaining the scenery.
-  return page.locator('.canvas-wrapper').screenshot({ mask: [page.locator('.camera-toolbar'), page.getByTestId('garden-title')], animations: 'disabled' })
+  return page.locator('.canvas-wrapper').screenshot({ mask: [page.locator('.camera-toolbar'), page.getByTestId('garden-tools-menu'), page.getByTestId('garden-title')], animations: 'disabled' })
 }
 
 async function rainGroundFrame(page: Page) {
-  const frame = await page.locator('.canvas-wrapper').screenshot({ mask: [page.locator('.camera-toolbar'), page.getByTestId('garden-title')], scale: 'css', animations: 'disabled' })
+  await dismissGardenTools(page)
+  const frame = await page.locator('.canvas-wrapper').screenshot({ mask: [page.locator('.camera-toolbar'), page.getByTestId('garden-tools-menu'), page.getByTestId('garden-title')], scale: 'css', animations: 'disabled' })
   const metadata = await sharp(frame).metadata()
   // Both ponds are on the right. This left-hand ground patch also avoids the
   // title, switcher and camera panel, so only rendered weather can dominate it.
@@ -85,7 +95,7 @@ for (const locale of ['ru', 'en']) {
       const on = await sceneryFrame(page)
       await page.locator('.canvas-wrapper').screenshot({ path: testInfo.outputPath(`${garden}-atmosphere.png`), animations: 'disabled' })
 
-      await toggle.click()
+      await clickGardenControl(page, 'garden-effects')
       await expect(scene).toHaveAttribute('data-effects', 'off')
       await expect(scene).toHaveAttribute('data-weather', 'none')
       await expect(toggle).toHaveAttribute('aria-pressed', 'false')
@@ -94,12 +104,12 @@ for (const locale of ['ru', 'en']) {
       const plain = await sceneryFrame(page)
       await page.locator('.canvas-wrapper').screenshot({ path: testInfo.outputPath(`${garden}-plain.png`), animations: 'disabled' })
 
-      await toggle.click()
+      await clickGardenControl(page, 'garden-effects')
       await expect(scene).toHaveAttribute('data-effects', 'on')
       await expect.poll(async () => Buffer.compare(on, await sceneryFrame(page))).toBe(0)
-      await toggle.click()
+      await clickGardenControl(page, 'garden-effects')
       await expect.poll(async () => Buffer.compare(plain, await sceneryFrame(page))).toBe(0)
-      await toggle.click()
+      await clickGardenControl(page, 'garden-effects')
       await expect(scene).toHaveAttribute('data-effects', 'on')
     }
     expect(errors).toEqual([])
@@ -122,7 +132,7 @@ test('the atmospheric light preference survives garden switches and reloads, whi
   await page.reload()
   await ready(page)
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-  await toggle.click()
+  await clickGardenControl(page, 'garden-effects')
   await expect(scene).toHaveAttribute('data-effects', 'on')
   await page.reload()
   await ready(page)
@@ -136,6 +146,7 @@ test('the atmospheric light preference survives garden switches and reloads, whi
   await page.getByTestId('garden-choice-grove').click()
   await ready(page)
   await expect(scene).toHaveAttribute('data-effects', 'on')
+  await ensureGardenControl(page, 'garden-effects')
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
 })
 
@@ -146,16 +157,14 @@ test('lake rain is visibly animated over the ground and respects reduced motion,
   await visitLocale(page, '/gardens?garden=lake', 'en')
   await ready(page)
   const scene = page.locator('.canvas-wrapper')
-  const effects = page.getByTestId('garden-effects')
-  const motion = page.getByTestId('garden-motion')
   await expect(scene).toHaveAttribute('data-weather', 'rain')
   await expect(scene).toHaveAttribute('data-motion', 'paused')
   const reduced = await sceneryFrame(page)
   await page.waitForTimeout(200)
   expect(Buffer.compare(reduced, await sceneryFrame(page))).toBe(0)
-  await effects.click()
+  await clickGardenControl(page, 'garden-effects')
   await expect(scene).toHaveAttribute('data-weather', 'none')
-  await effects.click()
+  await clickGardenControl(page, 'garden-effects')
   await expect.poll(async () => Buffer.compare(reduced, await sceneryFrame(page))).toBe(0)
 
   await page.emulateMedia({ reducedMotion: 'no-preference' })
@@ -163,15 +172,15 @@ test('lake rain is visibly animated over the ground and respects reduced motion,
   const wetStart = await rainGroundFrame(page)
   await page.waitForTimeout(450)
   const wetChanges = strongPixelChanges(wetStart, await rainGroundFrame(page))
-  await motion.click()
+  await clickGardenControl(page, 'garden-motion')
   await expect(scene).toHaveAttribute('data-motion', 'paused')
   const stopped = await sceneryFrame(page)
   await page.waitForTimeout(250)
   expect(Buffer.compare(stopped, await sceneryFrame(page))).toBe(0)
   await page.locator('.canvas-wrapper').screenshot({ path: testInfo.outputPath('lake-rain.png'), animations: 'disabled' })
 
-  await effects.click()
-  await motion.click()
+  await clickGardenControl(page, 'garden-effects')
+  await clickGardenControl(page, 'garden-motion')
   await expect(scene).toHaveAttribute('data-motion', 'running')
   const dryStart = await rainGroundFrame(page)
   await page.waitForTimeout(450)
@@ -179,57 +188,63 @@ test('lake rain is visibly animated over the ground and respects reduced motion,
   // Existing motes keep moving with effects off. The fast, thin rain must create
   // substantially more visible movement than those few ambient points alone.
   expect(wetChanges).toBeGreaterThan(dryChanges + 30)
-  await motion.click()
-  await effects.click()
+  await clickGardenControl(page, 'garden-motion')
+  await clickGardenControl(page, 'garden-effects')
+  const initialZoom = Number(await scene.getAttribute('data-zoom'))
   await page.getByTestId('garden-zoom-in').click()
-  await expect(page.locator('.camera-toolbar output')).toHaveText('125%')
+  await expect.poll(async () => Number(await scene.getAttribute('data-zoom'))).toBeCloseTo(Math.min(4, initialZoom * 1.25), 2)
   const zoomed = await sceneryFrame(page)
-  await effects.click()
+  await clickGardenControl(page, 'garden-effects')
   await expect(scene).toHaveAttribute('data-weather', 'none')
-  await effects.click()
+  await clickGardenControl(page, 'garden-effects')
   await expect.poll(async () => Buffer.compare(zoomed, await sceneryFrame(page))).toBe(0)
   const stone = page.getByTestId('memorial-lake-1')
   await stone.focus()
   await openMemorialStory(page, stone, isMobile)
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(scene).toHaveAttribute('data-weather', 'rain')
-  await page.keyboard.press('Escape')
+  await page.getByTestId('memorial-detail-return').click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   expect(errors).toEqual([])
 })
 
-test('light follows motion pause and the close-up, while toggling it leaves the garden camera and memorials usable', async ({ page, isMobile }) => {
+test('light follows motion pause and the close-up, while toggling it leaves the garden camera and memorials usable', async ({ page, isMobile }, testInfo) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await visitLocale(page, '/gardens?garden=grove', 'en')
   await ready(page)
   const scene = page.locator('.canvas-wrapper')
-  const effects = page.getByTestId('garden-effects')
-  const motion = page.getByTestId('garden-motion')
   await expect(scene).toHaveAttribute('data-effects', 'on')
   await expect(scene).toHaveAttribute('data-motion', 'running')
-  await motion.click()
+  await clickGardenControl(page, 'garden-motion')
   await expect(scene).toHaveAttribute('data-motion', 'paused')
   const still = await sceneryFrame(page)
   // Sampling multiple idle frames catches an accidentally running shader clock.
   await page.waitForTimeout(250)
   expect(Buffer.compare(still, await sceneryFrame(page))).toBe(0)
-  await effects.click()
+  await clickGardenControl(page, 'garden-effects')
   await expect(scene).toHaveAttribute('data-effects', 'off')
   await expect(scene).toHaveAttribute('data-motion', 'paused')
   await expect.poll(async () => Buffer.compare(still, await sceneryFrame(page))).not.toBe(0)
-  await effects.click()
-  await expect.poll(async () => Buffer.compare(still, await sceneryFrame(page))).toBe(0)
+  await clickGardenControl(page, 'garden-effects')
+  try {
+    await expect.poll(async () => Buffer.compare(still, await sceneryFrame(page))).toBe(0)
+  } catch (error) {
+    await testInfo.attach('paused-light-before', { body: still, contentType: 'image/png' })
+    await testInfo.attach('paused-light-restored', { body: await sceneryFrame(page), contentType: 'image/png' })
+    throw error
+  }
 
-  await motion.click()
+  await clickGardenControl(page, 'garden-motion')
   await expect(scene).toHaveAttribute('data-motion', 'running')
-  await effects.click()
+  await clickGardenControl(page, 'garden-effects')
   await expect(scene).toHaveAttribute('data-effects', 'off')
   await expect(scene).toHaveAttribute('data-motion', 'running')
   const withoutLight = await sceneryFrame(page)
   await expect.poll(async () => Buffer.compare(withoutLight, await sceneryFrame(page))).not.toBe(0)
-  await effects.click()
+  await clickGardenControl(page, 'garden-effects')
+  const initialZoom = Number(await scene.getAttribute('data-zoom'))
   await page.getByTestId('garden-zoom-in').click()
-  await expect(page.locator('.camera-toolbar output')).toHaveText('125%')
+  await expect.poll(async () => Number(await scene.getAttribute('data-zoom'))).toBeCloseTo(Math.min(4, initialZoom * 1.25), 2)
   const stone = page.getByTestId('memorial-grove-1')
   await stone.focus()
   await expect(stone).toBeInViewport()
@@ -247,11 +262,11 @@ test('light follows motion pause and the close-up, while toggling it leaves the 
   await page.waitForTimeout(250)
   expect(Buffer.compare(storyStill, await sceneryFrame(page))).toBe(0)
   await page.getByTestId('memorial-detail-motion').click()
-  await page.keyboard.press('Escape')
+  await page.getByTestId('memorial-detail-return').click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(scene).toHaveAttribute('data-motion', 'running')
-  await page.getByTestId('garden-camera-reset').click()
-  await expect(page.locator('.camera-toolbar output')).toHaveText('100%')
+  await clickGardenControl(page, 'garden-camera-reset')
+  await expect.poll(async () => Number(await scene.getAttribute('data-zoom'))).toBeCloseTo(initialZoom, 2)
 })
 
 for (const failure of ['reload', 'enable'] as const) {
@@ -276,7 +291,7 @@ for (const failure of ['reload', 'enable'] as const) {
       await page.reload()
     } else {
       await page.evaluate(failAtmosphereShaders)
-      await toggle.click()
+      await clickGardenControl(page, 'garden-effects')
     }
     await ready(page)
     await expect(scene).toHaveAttribute('data-effects', 'unavailable')
@@ -287,7 +302,7 @@ for (const failure of ['reload', 'enable'] as const) {
     await expect(toggle).toHaveAttribute('title', message)
     // Disabled weather controls cannot receive keyboard focus or mobile hover;
     // their explanation must remain discoverable from the reachable Help control.
-    const help = page.getByTestId('garden-help')
+    const help = await ensureGardenControl(page, 'garden-help')
     await help.focus()
     await page.keyboard.press('Enter')
     await expect(help).toHaveAttribute('aria-expanded', 'true')
@@ -299,14 +314,15 @@ for (const failure of ['reload', 'enable'] as const) {
     await expect.poll(async () => Buffer.compare(plain, await sceneryFrame(page))).toBe(0)
     await page.locator('.canvas-wrapper').screenshot({ path: testInfo.outputPath(`shader-${failure}-fallback.png`), animations: 'disabled' })
 
+    const initialZoom = Number(await scene.getAttribute('data-zoom'))
     await page.getByTestId('garden-zoom-in').click()
-    await expect(page.locator('.camera-toolbar output')).toHaveText('125%')
+    await expect.poll(async () => Number(await scene.getAttribute('data-zoom'))).toBeCloseTo(Math.min(4, initialZoom * 1.25), 2)
     const stone = page.getByTestId('memorial-lake-1')
     await stone.focus()
     await expect(stone).toBeInViewport()
     await openMemorialStory(page, stone, isMobile)
     await expect(page.getByRole('dialog')).toBeVisible()
-    await page.keyboard.press('Escape')
+    await page.getByTestId('memorial-detail-return').click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(scene).toHaveAttribute('data-state', 'ready')
     await expect(scene).toHaveAttribute('data-effects', 'unavailable')

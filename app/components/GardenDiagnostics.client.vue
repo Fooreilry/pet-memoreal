@@ -65,7 +65,7 @@ onBeforeUnmount(() => { if (opened.value) emit('open', false) })
 
 <template>
   <UPopover v-model:open="opened" :dismissible="!busy" :content="{ side: 'bottom', align: 'end', sideOffset: 10, collisionPadding: 12, prioritizePosition: true, sticky: 'always' }" :ui="{ content: 'bg-(--surface-panel) rounded-(--panel-radius) ring-1 ring-(--ui-border) shadow-xl' }">
-    <button type="button" class="diagnostics-toggle" :aria-label="t(`${prefix}.title`)" :title="t(`${prefix}.title`)" data-testid="diagnostics-toggle"><UIcon name="i-lucide-gauge" aria-hidden="true" /></button>
+    <button type="button" class="diagnostics-toggle" :aria-label="t(`${prefix}.title`)" :title="t(`${prefix}.title`)" data-testid="diagnostics-toggle"><UIcon name="i-lucide-gauge" aria-hidden="true" /><span class="camera-tool-label">{{ t(`${prefix}.title`) }}</span></button>
     <template #content>
       <section class="diagnostics-panel" :aria-labelledby="`${ids}-title`" :aria-describedby="`${ids}-description`" :data-recording="recording" :data-runner-status="runner.status" data-testid="diagnostics-panel" @keydown.capture="benchmarkEscape">
         <header class="diagnostics-heading">
@@ -163,6 +163,7 @@ onBeforeUnmount(() => { if (opened.value) emit('open', false) })
 </template>
 
 <style scoped>
+.camera-tool-label { display: none; }
 .diagnostics-toggle { display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--control-radius); color: var(--garden-control-text); cursor: pointer; }
 .diagnostics-toggle:hover { background: var(--garden-control-hover); }
 .diagnostics-toggle:focus-visible { outline: var(--focus-width) solid var(--color-lantern-300); outline-offset: -2px; }

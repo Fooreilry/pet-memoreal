@@ -3,7 +3,8 @@ import { Application, Container, Graphics, RenderTexture, Sprite } from 'pixi.js
 import type { WebGLRenderer } from 'pixi.js'
 import { findDemoGarden } from '../data/demoGardens'
 import type { GardenId } from '../data/demoGardens'
-import { createGardenScene, getGardenOverviewLayout } from '../utils/gardenScene'
+import { createGardenScene } from '../utils/gardenScene'
+import { getGardenOverviewLayout } from '../utils/gardenOverviewLayout'
 import { getGardenWorldSize, gardenLayoutVersion } from '../data/gardenLayout'
 import { getGardenProjection } from '../utils/gardenProjection'
 import { drawGardenSurroundings } from '../utils/gardenSurroundings'
@@ -14,6 +15,7 @@ import { streamBounds } from '../data/gardenPlacement'
 import { getMemorialLayout } from '../data/demoMemorials'
 import { drawHillStream } from '../utils/hillScenery'
 import type { GardenView } from '../utils/gardenProjection'
+import type { GardenMarkerBounds } from '../utils/gardenMarkerMetrics'
 import type { PublicMemorial } from '../../shared/memorials'
 import { createGardenAtmosphere } from '../utils/gardenAtmosphere'
 import { createGardenMemorialScene } from '../utils/gardenMemorialScene'
@@ -39,6 +41,9 @@ type SceneTarget = { kind: 'overview' | 'garden' | 'memorial', gardenId?: Garden
 const props = withDefaults(defineProps<{ gardenId?: GardenId, memorials?: PublicMemorial[], placesState?: 'loading' | 'ready' | 'error', apiWaitMs?: number, apiStartedAt?: number, apiRequestId?: number, focusId?: string, canCreate?: boolean, editing?: boolean, fullscreen?: boolean }>(), { memorials: () => [], placesState: 'ready', apiWaitMs: 0, apiStartedAt: undefined, apiRequestId: undefined, focusId: undefined, gardenId: undefined, canCreate: false, editing: false, fullscreen: false })
 const emit = defineEmits<{ select: [id: GardenId], create: [place: number], ready: [value: boolean], displayed: [id?: GardenId], cancel: [id?: GardenId], detail: [open: boolean], retry: [], toggleFullscreen: [] }>()
 const { t, locale } = useI18n()
+const compactControls = useCompactGardenControls()
+const compactOverview = computed(() => !props.gardenId && compactControls.value)
+const cameraToolsOpen = ref(false)
 const { seed: sessionSeed, cookie: sessionCookie } = useGardenSession()
 const runtime = useRuntimeConfig()
 const diagnosticsEnabled = gardenDiagnosticsAllowed(runtime.public.gardenDiagnostics)
@@ -86,23 +91,29 @@ const visualBusy = computed(() => !interactive.value)
 const returningFromMemorial = computed(() => transition.value.source?.kind === 'memorial' && transition.value.requested?.kind !== 'memorial')
 const interactive = computed(() => isReady.value && transition.value.interactive)
 const cameraEnabled = computed(() => interactive.value && !!props.gardenId && !modalOpen.value && !props.editing)
-const { camera, interacting, dragging, reset, resize, zoomTo, reveal, pointerDown, pointerMove, pointerUp, clickCapture, wheel, keydown } = useGardenCamera(viewport, cameraEnabled)
 const world = shallowRef({ width: 1000, height: 650 })
 const projection = shallowRef(getGardenProjection(1000, 650, 1000, 650))
+const { camera, interacting, dragging, reset, resize, zoomTo, reveal, pointerDown, pointerMove, pointerUp, clickCapture, wheel, keydown } = useGardenCamera(viewport, cameraEnabled)
 const visibleChunks = ref(0)
+const markerHits = shallowRef<Record<number, GardenMarkerBounds>>({})
 const surroundingPlants = ref(0)
 const surroundingBounds = shallowRef<GardenView>()
 const surroundingTransform = reactive({ scale: 0, x: 0, y: 0 })
-const overviewPlaces = computed(() => getGardenOverviewLayout(world.value.width, world.value.height))
+const overviewPlaces = computed(() => getGardenOverviewLayout(world.value.width, world.value.height, compactControls.value))
+function overviewRect(rect: { x: number, y: number, width: number, height: number }, width: number, height: number) {
+  return { left: `${rect.x / width * 100}%`, top: `${rect.y / height * 100}%`, width: `${rect.width / width * 100}%`, height: `${rect.height / height * 100}%` }
+}
 const overviewHovered = ref<GardenId>()
 let application: Application | undefined
 let observer: ResizeObserver | undefined
 let disposed = false
 let attempt = 0
 let frame = 0
+let renderPending = false
 let readyFrame = 0
 let prepareFrame = 0
 let renderRevision = 0
+let deferredOverviewRender = false
 let detailRevision = 0
 let transitionFrame = 0
 let loaderTimer: ReturnType<typeof setTimeout> | undefined
@@ -119,10 +130,11 @@ let sceneRoot: Application['stage'] | undefined
 let surroundings: Container | undefined
 let surroundingKey = ''
 let updateVisibility: ((view: GardenView) => number) | undefined
+let updateMarkers: ((screenScale: number, compact: boolean) => Record<number, GardenMarkerBounds>) | undefined
 let highlightOverview: ((id?: GardenId, immediate?: boolean) => boolean) | undefined
 let advanceOverview: ((deltaMS: number) => boolean) | undefined
 let atmosphere: ReturnType<typeof createGardenAtmosphere> | undefined
-let rendered: { app: Application, width: number, height: number, gardenId?: GardenId, locale: string, memorials: PublicMemorial[], seed: number } | undefined
+let rendered: { app: Application, width: number, height: number, compactOverview: boolean, gardenId?: GardenId, locale: string, memorials: PublicMemorial[], seed: number } | undefined
 let elapsed = 0
 let detailScene: ReturnType<typeof createGardenMemorialScene> | undefined
 let detailFrame = 0
@@ -474,7 +486,6 @@ function advanceTransition() {
         prepareSafely(() => {
           if (target?.kind === 'memorial') syncDetail(token)
           else {
-            if (rendered?.gardenId !== target?.gardenId) reset()
             disposeDetail()
             detailMemorial.value = undefined
             emit('detail', false)
@@ -506,7 +517,8 @@ function requestScene(target: SceneTarget, focus = focusForGarden(target.gardenI
   cancelAnimationFrame(prepareFrame)
   cancelAnimationFrame(readyFrame)
   cancelAnimationFrame(detailFrame)
-  cancelAnimationFrame(frame)
+  cancelScheduledRender()
+  renderPending = false
   cancelAnimationFrame(overviewFrame)
   renderRevision++
   detailRevision++
@@ -553,7 +565,7 @@ function cancelTransition() {
 }
 
 function transitionKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && visualBusy.value && hasFrame.value && !document.querySelector('[data-testid="garden-header"] [aria-expanded="true"]')) { event.preventDefault(); event.stopPropagation(); cancelTransition() }
+  if (event.key === 'Escape' && visualBusy.value && hasFrame.value && !cameraToolsOpen.value && !document.querySelector('[data-testid="garden-header"] [aria-expanded="true"]')) { event.preventDefault(); event.stopPropagation(); cancelTransition() }
 }
 
 function disposeDetail() {
@@ -688,7 +700,16 @@ function toggleEffects() {
   try { localStorage.setItem('petmemoreal_garden_effects', effectsEnabled.value ? 'on' : 'off') } catch { /* The current visit still keeps the preference when storage is unavailable. */ }
 }
 
-function drawFrame() { paintFrame() }
+function cancelScheduledRender() {
+  cancelAnimationFrame(frame)
+  frame = 0
+}
+
+function drawFrame() {
+  cancelScheduledRender()
+  renderPending = false
+  paintFrame()
+}
 
 function paintFrame(force = false) {
   if (!application || disposed || state.value === 'error') return
@@ -708,7 +729,8 @@ function paintFrame(force = false) {
 function prepareSafely(work: () => void) {
   try { work() }
   catch {
-    cancelAnimationFrame(frame)
+    cancelScheduledRender()
+    renderPending = false
     cancelAnimationFrame(readyFrame)
     cancelAnimationFrame(prepareFrame)
     renderRevision++
@@ -745,8 +767,16 @@ async function retry() {
 }
 
 function syncMotion() {
-  if (moving.value) application?.start()
-  else application?.stop()
+  if (!application) return
+  if (moving.value) {
+    cancelScheduledRender()
+    application.start()
+  } else {
+    application.stop()
+    // A camera event may precede Vue's pause watcher in the same task. The
+    // stopped ticker must hand that still-unpainted change to one manual frame.
+    if (renderPending) scheduleRender()
+  }
 }
 
 function readMotion() { reducedMotion.value = motionQuery?.matches ?? false }
@@ -758,6 +788,7 @@ function applyCamera() {
   const x = projection.value.offsetX + camera.x, y = projection.value.offsetY + camera.y
   sceneRoot.scale.set(scale)
   sceneRoot.position.set(x, y)
+  if (updateMarkers) markerHits.value = updateMarkers(scale, compactControls.value)
   atmosphere?.setView(detailScene?.atmosphereView ?? { x, y, scale })
   if (surroundings) {
     surroundings.scale.set(scale)
@@ -810,7 +841,12 @@ function render() {
     changeDiagnosticConditions('viewport', () => Object.assign(viewportSize, size))
   } else Object.assign(viewportSize, size)
   if (!application || state.value === 'error') return
-  if (controller.state.phase !== 'idle') { prepareSafely(() => resizeRenderer(host.value!.clientWidth, host.value!.clientHeight)); advanceTransition(); return }
+  if (controller.state.phase !== 'idle') {
+    deferredOverviewRender ||= !props.gardenId
+    prepareSafely(() => resizeRenderer(host.value!.clientWidth, host.value!.clientHeight))
+    advanceTransition()
+    return
+  }
   if (!dataReady.value && rendered?.gardenId === props.gardenId) return
   if (rendered && rendered.gardenId === props.gardenId && rendered.memorials !== props.memorials && JSON.stringify(rendered.memorials) === JSON.stringify(props.memorials)) {
     rendered.memorials = props.memorials
@@ -829,17 +865,19 @@ function renderScene() {
   const width = host.value.clientWidth
   const height = host.value.clientHeight
   if (!width || !height) return
+  deferredOverviewRender = false
   const scale = Math.min(width / (width < 600 ? 640 : 1000), height / (width < 600 ? 840 : 650))
   const fixed = props.gardenId ? getGardenWorldSize(props.gardenId) : undefined
-  const worldW = fixed?.width ?? Math.round(width / scale)
-  const worldH = fixed?.height ?? Math.round(height / scale)
+  const worldW = fixed?.width ?? (compactOverview.value ? width : Math.round(width / scale))
+  const worldH = fixed?.height ?? (compactOverview.value ? height : Math.round(height / scale))
   projection.value = getGardenProjection(width, height, worldW, worldH, props.gardenId ? 16 : 0)
   resize(width, height, projection.value.width, projection.value.height)
+  if (rendered?.gardenId !== props.gardenId) reset()
   resizeRenderer(width, height)
   if (world.value.width !== worldW || world.value.height !== worldH) world.value = { width: worldW, height: worldH }
   // Viewport changes move the camera, retaining the same world and cached chunks.
   if (rendered?.app === application && rendered.width === worldW && rendered.height === worldH
-    && rendered.gardenId === props.gardenId && rendered.locale === locale.value && rendered.memorials === props.memorials && rendered.seed === sessionSeed.value) {
+    && rendered.compactOverview === compactOverview.value && rendered.gardenId === props.gardenId && rendered.locale === locale.value && rendered.memorials === props.memorials && rendered.seed === sessionSeed.value) {
     updateSurroundings(width, height)
     syncAtmosphere(width, height)
     applyCamera()
@@ -851,7 +889,9 @@ function renderScene() {
   }
   disposeDetail()
   const generationStarted = diagnostics?.recording ? performance.now() : 0
-  const scene = createGardenScene(worldW, worldH, findDemoGarden(props.gardenId), t, props.memorials)
+  const scene = createGardenScene(worldW, worldH, findDemoGarden(props.gardenId), t, props.memorials, compactOverview.value)
+  updateMarkers = scene.updateMarkers
+  markerHits.value = updateMarkers(projection.value.scale * camera.zoom, compactControls.value)
   for (const child of application.stage.removeChildren()) {
     if (child !== surroundings && child !== atmosphere?.root && child !== retainedFrame?.sprite) child.destroy({ children: true, context: true })
   }
@@ -878,17 +918,27 @@ function renderScene() {
   application.canvas.setAttribute('aria-label', props.gardenId ? `${t('garden.territoryLabel', { name: t(`garden.names.${props.gardenId}`) })} ${t(`garden.landscapes.${props.gardenId}`)}. ${t(`garden.life.${props.gardenId}`)}` : t('garden.mapLabel'))
   drawFrame()
   hasFrame.value = true
-  rendered = { app: application, width: worldW, height: worldH, gardenId: props.gardenId, locale: locale.value, memorials: props.memorials, seed: sessionSeed.value }
+  rendered = { app: application, width: worldW, height: worldH, compactOverview: compactOverview.value, gardenId: props.gardenId, locale: locale.value, memorials: props.memorials, seed: sessionSeed.value }
   finishScene()
 }
 
 function scheduleRender() {
-  cancelAnimationFrame(frame)
-  frame = requestAnimationFrame(drawFrame)
+  if (!application || disposed) return
+  renderPending = true
+  // TickerPlugin already renders after the scene update, including camera
+  // motion driven by that update. Its FPS limit must also govern camera draws.
+  if (application.ticker.started || frame) return
+  frame = requestAnimationFrame(() => {
+    frame = 0
+    // Resuming before this RAF transfers the pending work back to the ticker.
+    if (!application?.ticker.started) drawFrame()
+  })
 }
 
 async function start() {
   const currentAttempt = ++attempt
+  cancelScheduledRender()
+  renderPending = false
   observer?.disconnect()
   if (application) {
     releaseRendererProbe?.()
@@ -904,6 +954,7 @@ async function start() {
     surroundingKey = ''
     sceneRoot = undefined
     updateVisibility = undefined
+    updateMarkers = undefined
     animate = undefined
     hasFrame.value = false
   }
@@ -929,6 +980,8 @@ async function start() {
       if (detailScene) detailScene.update(elapsed)
       else animate?.(elapsed)
       if (effectsEnabled.value) atmosphere?.update(elapsed)
+      // Pixi's automatic render follows this update at UPDATE_PRIORITY.LOW.
+      renderPending = false
       if (diagnostics?.recording) diagnostics.tick(tickStarted, performance.now() - tickStarted)
     })
     observer = new ResizeObserver(render)
@@ -947,6 +1000,7 @@ async function start() {
     atmosphere?.destroy()
     atmosphere = undefined
     updateVisibility = undefined
+    updateMarkers = undefined
     animate = undefined
     if (!disposed && currentAttempt === attempt) state.value = 'error'
   }
@@ -971,6 +1025,15 @@ watch(sessionSeed, () => {
   requestScene(mapTarget(), undefined, true)
 })
 watch(camera, applyCamera, { flush: 'sync' })
+watch(compactControls, () => { if (props.gardenId) applyCamera(); else render() })
+watch(transitionPhase, phase => {
+  if (phase !== 'idle' || !deferredOverviewRender) return
+  deferredOverviewRender = false
+  // A viewport/profile change can arrive after geometry was committed but
+  // before reveal ends. Reconcile only a committed overview, never a cancelled
+  // target whose route is still being restored to its source garden.
+  if (controller.state.displayed?.kind === 'overview' && !props.gardenId) render()
+})
 watch(moving, syncMotion)
 if (diagnostics) {
   watch(moving, value => diagnostics.setActive(value), { flush: 'sync', immediate: true })
@@ -979,6 +1042,8 @@ if (diagnostics) {
     if (!restoringDiagnosticState && diagnosticRunner?.isRunning && (!visible.value || !inView.value || reducedMotion.value || paused.value)) diagnosticRunner.cancel('conditions-changed')
   })
 }
+watch(() => props.gardenId, () => { if (!diagnosticsOpen.value) cameraToolsOpen.value = false })
+watch(detailMemorial, () => { cameraToolsOpen.value = false })
 watch(effectsEnabled, () => { syncAtmosphere(); drawFrame() })
 watch(reducedMotion, value => { controller.setReducedMotion(value, performance.now()); advanceTransition() })
 watch([reducedMotion, visible, inView], () => {
@@ -1053,7 +1118,8 @@ onBeforeUnmount(() => {
   motionQuery?.removeEventListener('change', readMotion)
   document.removeEventListener('visibilitychange', readVisibility)
   document.removeEventListener('keydown', transitionKeydown, true)
-  cancelAnimationFrame(frame)
+  cancelScheduledRender()
+  renderPending = false
   cancelAnimationFrame(readyFrame)
   cancelAnimationFrame(overviewFrame)
   cancelAnimationFrame(prepareFrame)
@@ -1075,6 +1141,7 @@ onBeforeUnmount(() => {
   sceneRoot = undefined
   surroundings = undefined
   updateVisibility = undefined
+  updateMarkers = undefined
   highlightOverview = undefined
   advanceOverview = undefined
   atmosphere?.destroy()
@@ -1164,24 +1231,25 @@ onBeforeUnmount(() => {
         :key="place.garden.id"
         type="button"
         class="garden-choice"
-        :class="{ 'garden-choice-active': overviewHovered === place.garden.id }"
+        :class="{ 'garden-choice-active': overviewHovered === place.garden.id, 'garden-choice-compact': compactControls, 'garden-choice-short': compactControls && place.caption.height <= 84 }"
         :data-testid="`garden-choice-${place.garden.id}`"
         :aria-label="t(`garden.names.${place.garden.id}`)"
         :aria-describedby="`garden-description-${place.garden.id}`"
-        :style="{ left: `${place.x / world.width * 100}%`, top: `${place.y / world.height * 100}%`, width: `${place.width / world.width * 100}%`, height: `${place.height / world.height * 100}%` }"
+        :style="overviewRect(place, world.width, world.height)"
         @pointerenter="$event.pointerType === 'mouse' && hoverOverview(place.garden.id)"
         @pointerleave="hoverOverview()"
         @focus="hoverOverview(place.garden.id)"
         @blur="hoverOverview()"
         @click="chooseGarden(place.garden.id)"
       >
-        <span class="garden-choice-caption">
+        <span v-if="compactControls" class="garden-choice-illustration" aria-hidden="true" :style="overviewRect(place.illustration, place.width, place.height)" />
+        <span class="garden-choice-caption" :style="compactControls ? overviewRect(place.caption, place.width, place.height) : undefined">
           <span class="garden-choice-title">{{ t(`garden.names.${place.garden.id}`) }}<UIcon name="i-lucide-arrow-up-right" aria-hidden="true" /></span>
           <span :id="`garden-description-${place.garden.id}`" class="garden-choice-description">{{ t(`garden.overview.${place.garden.id}`) }}</span>
         </span>
       </button>
     </nav>
-    <GardenMemorials v-if="isReady && displayedGarden" :key="`${displayedGarden}:${sessionSeed}`" ref="memorialLayer" :garden-id="displayedGarden" :width="world.width" :height="world.height" :projection="projection" :camera="camera" :interacting="interacting" :blocked="!interactive" :detail-ready="detailState === 'ready'" :saved="displayedRecords" :focus-id="gardenId === displayedGarden ? focusId : undefined" :can-create="canCreate && !editing" :paused="paused" :reduced-motion="reducedMotion" :effects-enabled="effectsEnabled" :effects-supported="effectsSupported" @modal="modalOpen = $event" @detail="displayDetail" @pause="paused = !paused" @effects="toggleEffects" @reveal="reveal" @create="emit('create', $event)" />
+    <GardenMemorials v-if="isReady && displayedGarden" :key="`${displayedGarden}:${sessionSeed}`" ref="memorialLayer" :garden-id="displayedGarden" :width="world.width" :height="world.height" :projection="projection" :camera="camera" :compact="compactControls" :marker-hits="markerHits" :interacting="interacting" :blocked="!interactive" :detail-ready="detailState === 'ready'" :viewport-width="viewportSize.width" :saved="displayedRecords" :focus-id="gardenId === displayedGarden ? focusId : undefined" :can-create="canCreate && !editing" :paused="paused" :reduced-motion="reducedMotion" :effects-enabled="effectsEnabled" :effects-supported="effectsSupported" @modal="modalOpen = $event" @detail="displayDetail" @pause="paused = !paused" @effects="toggleEffects" @reveal="reveal" @create="emit('create', $event)" />
     <div v-if="visualBusy" class="canvas-state" data-testid="scene-veil" :data-kind="detailMemorial ? 'memorial' : 'garden'" :style="{ '--scene-cover': tintOpacity, '--scene-tint': sceneTint }">
       <AppState
         v-if="viewState === 'error'"
@@ -1197,25 +1265,27 @@ onBeforeUnmount(() => {
       <button v-if="hasFrame" type="button" class="scene-cancel" data-testid="scene-cancel" @click="cancelTransition">{{ t(returningFromMemorial ? 'garden.skipTransition' : 'garden.cancelTransition') }}<UIcon name="i-lucide-arrow-left" aria-hidden="true" /></button>
     </div>
   </div>
-  <div v-if="gardenId && !detailMemorial && (interactive || fullscreen || diagnosticsEnabled)" class="camera-toolbar" :class="{ 'camera-toolbar-loading': !interactive }" role="group" :aria-label="t('garden.camera.controls')">
+  <div v-if="gardenId && !detailMemorial && (interactive || fullscreen || diagnosticsEnabled)" class="camera-toolbar" :class="{ 'camera-toolbar-loading': !interactive, 'camera-toolbar-compact': compactControls }" role="group" :aria-label="t('garden.camera.controls')">
     <div v-if="interactive" class="camera-zoom-group" role="group" :aria-label="t('garden.camera.scale')">
       <button type="button" :aria-label="t('garden.camera.out')" :title="t('garden.camera.out')" :disabled="camera.zoom <= 1 || editing || modalOpen" data-testid="garden-zoom-out" @click="zoomTo(camera.zoom / 1.25)"><UIcon name="i-lucide-minus" aria-hidden="true" /></button>
       <output :aria-label="t('garden.camera.scale')">{{ Math.round(camera.zoom * 100) }}%</output>
       <button type="button" :aria-label="t('garden.camera.in')" :title="t('garden.camera.in')" :disabled="camera.zoom >= 4 || editing || modalOpen" data-testid="garden-zoom-in" @click="zoomTo(camera.zoom * 1.25)"><UIcon name="i-lucide-plus" aria-hidden="true" /></button>
     </div>
-    <div class="camera-tools-group">
-      <button v-if="interactive" type="button" :aria-label="t('garden.camera.reset')" :title="t('garden.camera.reset')" :disabled="editing || modalOpen" data-testid="garden-camera-reset" @click="reset"><UIcon name="i-lucide-rotate-ccw" aria-hidden="true" /></button>
-      <button type="button" :aria-label="t(fullscreen ? 'garden.camera.exitFullscreen' : 'garden.camera.fullscreen')" :title="t(fullscreen ? 'garden.camera.exitFullscreen' : 'garden.camera.fullscreen')" :aria-pressed="fullscreen" data-testid="garden-fullscreen" @click="emit('toggleFullscreen')"><UIcon :name="fullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'" aria-hidden="true" /></button>
-      <GardenDiagnostics v-if="diagnosticsEnabled" :snapshot="diagnosticsSnapshot" :mode="diagnosticsMode" :fps-limit="fpsLimit" :recording="diagnosticsRecording" :runner="diagnosticRunnerState" :results="diagnosticsResults" @open="openDiagnosticPanel" @mode="setDiagnosticMode" @fps="setDiagnosticFps" @start="beginDiagnosticRun" @stop="endDiagnosticRun()" @benchmark="runDiagnosticBenchmark" @cancel-benchmark="diagnosticRunner?.cancel()" @export="exportDiagnostics" />
-      <template v-if="interactive">
-        <button type="button" :aria-pressed="effectsEnabled && effectsSupported" :aria-label="t(!effectsSupported ? 'garden.effects.unavailable' : effectsEnabled ? 'garden.effects.disable' : 'garden.effects.enable')" :title="t(!effectsSupported ? 'garden.effects.unavailable' : effectsEnabled ? 'garden.effects.disable' : 'garden.effects.enable')" :disabled="!effectsSupported" :class="{ 'effects-active': effectsEnabled && effectsSupported }" data-testid="garden-effects" @click="toggleEffects"><UIcon :name="gardenId === 'lake' ? 'i-lucide-cloud-rain' : gardenId === 'meadow' ? 'i-lucide-sun' : gardenId === 'grove' ? 'i-lucide-sun-medium' : 'i-lucide-cloud-sun'" aria-hidden="true" /></button>
-        <button v-if="!reducedMotion" type="button" :aria-pressed="paused" :aria-label="t(paused ? 'garden.resumeMotion' : 'garden.pauseMotion')" :title="t(paused ? 'garden.resumeMotion' : 'garden.pauseMotion')" data-testid="garden-motion" @click="paused = !paused"><UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" aria-hidden="true" /></button>
-        <UPopover :content="{ side: 'bottom', align: 'end', sideOffset: 10, collisionPadding: 16, prioritizePosition: true, sticky: 'always' }">
-          <button type="button" :aria-label="t('garden.camera.instructions')" :title="t('garden.camera.instructions')" data-testid="garden-help"><UIcon name="i-lucide-circle-help" aria-hidden="true" /></button>
-          <template #content><section class="garden-help-card" :aria-label="t('garden.camera.instructions')"><h2>{{ t('garden.camera.instructions') }}</h2><p>{{ t('garden.camera.help') }}</p><p>{{ t('creation.mapHint') }}</p><p>{{ t('garden.effects.help') }}</p><p v-if="!effectsSupported" class="garden-effects-note">{{ t('garden.effects.unavailable') }}</p><p v-if="reducedMotion">{{ t('garden.reducedMotion') }}</p></section></template>
-        </UPopover>
-      </template>
-    </div>
+    <GardenControlMenu v-model:open="cameraToolsOpen" :compact="compactControls" :dismissible="!diagnosticsOpen">
+      <div class="camera-tools-group">
+        <button v-if="interactive" type="button" :aria-label="t('garden.camera.reset')" :title="t('garden.camera.reset')" :disabled="editing || modalOpen" data-testid="garden-camera-reset" @click="reset"><UIcon name="i-lucide-rotate-ccw" aria-hidden="true" /><span class="camera-tool-label">{{ t('garden.camera.reset') }}</span></button>
+        <button type="button" :aria-label="t(fullscreen ? 'garden.camera.exitFullscreen' : 'garden.camera.fullscreen')" :title="t(fullscreen ? 'garden.camera.exitFullscreen' : 'garden.camera.fullscreen')" :aria-pressed="fullscreen" data-testid="garden-fullscreen" @click="emit('toggleFullscreen')"><UIcon :name="fullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'" aria-hidden="true" /><span class="camera-tool-label">{{ t(fullscreen ? 'garden.camera.exitFullscreen' : 'garden.camera.fullscreen') }}</span></button>
+        <GardenDiagnostics v-if="diagnosticsEnabled" :snapshot="diagnosticsSnapshot" :mode="diagnosticsMode" :fps-limit="fpsLimit" :recording="diagnosticsRecording" :runner="diagnosticRunnerState" :results="diagnosticsResults" @open="openDiagnosticPanel" @mode="setDiagnosticMode" @fps="setDiagnosticFps" @start="beginDiagnosticRun" @stop="endDiagnosticRun()" @benchmark="runDiagnosticBenchmark" @cancel-benchmark="diagnosticRunner?.cancel()" @export="exportDiagnostics" />
+        <template v-if="interactive">
+          <button type="button" :aria-pressed="effectsEnabled && effectsSupported" :aria-label="t(!effectsSupported ? 'garden.effects.unavailable' : effectsEnabled ? 'garden.effects.disable' : 'garden.effects.enable')" :title="t(!effectsSupported ? 'garden.effects.unavailable' : effectsEnabled ? 'garden.effects.disable' : 'garden.effects.enable')" :disabled="!effectsSupported" :class="{ 'effects-active': effectsEnabled && effectsSupported }" data-testid="garden-effects" @click="toggleEffects"><UIcon :name="gardenId === 'lake' ? 'i-lucide-cloud-rain' : gardenId === 'meadow' ? 'i-lucide-sun' : gardenId === 'grove' ? 'i-lucide-sun-medium' : 'i-lucide-cloud-sun'" aria-hidden="true" /><span class="camera-tool-label">{{ t(!effectsSupported ? 'garden.effects.unavailable' : effectsEnabled ? 'garden.effects.disable' : 'garden.effects.enable') }}</span></button>
+          <button v-if="!reducedMotion" type="button" :aria-pressed="paused" :aria-label="t(paused ? 'garden.resumeMotion' : 'garden.pauseMotion')" :title="t(paused ? 'garden.resumeMotion' : 'garden.pauseMotion')" data-testid="garden-motion" @click="paused = !paused"><UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" aria-hidden="true" /><span class="camera-tool-label">{{ t(paused ? 'garden.resumeMotion' : 'garden.pauseMotion') }}</span></button>
+          <UPopover :content="{ side: 'bottom', align: 'end', sideOffset: 10, collisionPadding: 16, prioritizePosition: true, sticky: 'always' }">
+            <button type="button" :aria-label="t('garden.camera.instructions')" :title="t('garden.camera.instructions')" data-testid="garden-help"><UIcon name="i-lucide-circle-help" aria-hidden="true" /><span class="camera-tool-label">{{ t('garden.camera.instructions') }}</span></button>
+            <template #content><section class="garden-help-card" :aria-label="t('garden.camera.instructions')"><h2>{{ t('garden.camera.instructions') }}</h2><p>{{ t('garden.camera.help') }}</p><p>{{ t('creation.mapHint') }}</p><p>{{ t('garden.effects.help') }}</p><p v-if="!effectsSupported" class="garden-effects-note">{{ t('garden.effects.unavailable') }}</p><p v-if="reducedMotion">{{ t('garden.reducedMotion') }}</p></section></template>
+          </UPopover>
+        </template>
+      </div>
+    </GardenControlMenu>
   </div>
   <p v-if="gardenId" id="garden-camera-help" class="sr-only">{{ t('garden.camera.help') }} {{ t('creation.mapHint') }}</p>
 </template>
@@ -1239,6 +1309,14 @@ onBeforeUnmount(() => {
 .garden-choice-description { min-height: 42px; font-size: 14px; line-height: 1.5; color: var(--color-garden-100); }
 .garden-choice:hover .garden-choice-title .iconify { transform: translate(2px, -2px); }
 .garden-choice:active .garden-choice-caption { background: var(--color-garden-900); }
+.garden-choice-illustration { position: absolute; pointer-events: none; }
+.garden-choice-compact { border-radius: 12px; }
+.garden-choice-compact .garden-choice-caption { right: auto; bottom: auto; gap: 4px; padding: 8px 10px; border-radius: 0 0 12px 12px; align-content: start; }
+.garden-choice-compact .garden-choice-title { gap: 6px; font-size: 22px; }
+.garden-choice-compact .garden-choice-title .iconify { width: 16px; height: 16px; }
+.garden-choice-compact .garden-choice-description { min-height: 0; font-size: 14px; line-height: 1.4; }
+.garden-choice-short .garden-choice-title { font-size: 20px; }
+.garden-choice-short .garden-choice-description { font-size: 13px; line-height: 1.4; }
 .canvas-host :deep(canvas) { position: absolute; left: var(--drawing-left); top: var(--drawing-top); display: block; width: var(--drawing-width); height: var(--drawing-height); touch-action: pan-y; }
 .canvas-state { position: absolute; inset: 0; z-index: calc(var(--garden-detail-layer) + 1); display: grid; place-items: center; color: #f8f3e8; --ui-primary: #efc681; --focus-color: #efc681; cursor: default; }
 .canvas-state::before { content: ''; position: absolute; inset: 0; background: var(--scene-tint, #173c32); opacity: var(--scene-cover, 1); pointer-events: none; }
@@ -1258,6 +1336,7 @@ onBeforeUnmount(() => {
 .camera-toolbar { position: absolute; z-index: 3; top: calc(20px + env(safe-area-inset-top)); right: calc(20px + env(safe-area-inset-right)); display: grid; gap: 6px; width: 134px; color: var(--garden-control-text); }
 .camera-zoom-group, .camera-tools-group { padding: 0; border: 1px solid var(--garden-control-border); border-radius: var(--control-radius); background: var(--garden-control-bg); box-shadow: 0 3px 12px #0c282b20; }
 .camera-zoom-group { display: grid; grid-template-columns: 44px 44px 44px; align-items: center; }
+.camera-tool-label { display: none; }
 .camera-tools-group { display: grid; grid-template-columns: repeat(3, 44px); }
 .camera-toolbar button { display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--control-radius); cursor: pointer; }
 .camera-toolbar button:hover:not(:disabled) { background: var(--garden-control-hover); }
@@ -1273,7 +1352,14 @@ onBeforeUnmount(() => {
 .garden-help-card h2 { margin: 0 0 16px; font: 24px/1.25 var(--font-display); color: var(--ui-text-highlighted); letter-spacing: -0.4px; }
 .garden-help-card p + p { margin-top: 12px; }
 .garden-effects-note { padding: 12px; border-radius: var(--control-radius); background: var(--garden-mist); }
-@media (max-width: 600px) { .camera-toolbar { top: calc(76px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right)); } .garden-choice-caption { left: 8px; right: 8px; bottom: 8px; padding: 14px 12px; gap: 6px; } .garden-choice-title { font-size: 24px; } }
+.camera-toolbar-compact { top: calc(12px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right)); display: flex; flex-direction: column; align-items: center; gap: 6px; width: 46px; }
+.camera-toolbar-compact .camera-zoom-group { display: flex; flex-direction: column-reverse; width: 46px; }
+.camera-toolbar-compact output { display: grid; place-items: center; width: 44px; height: 22px; font-size: 11px; line-height: 1; }
+.camera-toolbar-compact button > .iconify { width: 18px; height: 18px; }
+@media (max-width: 600px) {
+  .garden-choice-caption { left: 8px; right: 8px; bottom: 8px; padding: 14px 12px; gap: 6px; }
+  .garden-choice-title { font-size: 24px; }
+}
 @media (max-width: 380px) { .garden-choice-caption { padding-inline: 10px; } .garden-choice-title { font-size: 22px; } .garden-choice-title .iconify { display: none; } }
 @media (max-height: 500px) { .camera-toolbar { gap: 4px; } .garden-choice-caption { padding-block: 10px; gap: 4px; } .garden-choice-title { font-size: 24px; } .garden-choice-description { min-height: 21px; } }
 @media (max-height: 500px) and (min-width: 601px) { .camera-toolbar { top: calc(12px + env(safe-area-inset-top)); } }

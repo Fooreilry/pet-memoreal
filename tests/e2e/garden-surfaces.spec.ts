@@ -1,3 +1,4 @@
+import { clickGardenControl } from './helpers/garden-controls'
 import { openMemorialStory } from './helpers/memorial'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
@@ -87,18 +88,20 @@ for (const garden of gardens) {
     await clearPreview(page)
     await sceneryFrame(page, testInfo.outputPath(`${garden.id}-textured-ground.png`))
 
+    const initialCamera = await scene.evaluate(element => ['data-zoom', 'data-camera-x', 'data-camera-y'].map(attribute => element.getAttribute(attribute)!))
+    const initialZoom = Number(initialCamera[0])
     const first = page.getByTestId(`memorial-${garden.id}-1`)
     await first.focus()
     await expect(first).toBeInViewport()
     await openMemorialStory(page, first, isMobile)
     await expect(page.getByRole('dialog').locator('.memorial-location')).toContainText('Place 1')
-    await page.keyboard.press('Escape')
+    await page.getByTestId('memorial-detail-return').click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(first).toBeFocused()
 
     await page.getByTestId('garden-zoom-in').click()
     await page.getByTestId('garden-zoom-in').click()
-    await expect(page.locator('.camera-toolbar output')).toHaveText('156%')
+    await expect.poll(async () => Number(await scene.getAttribute('data-zoom'))).toBeCloseTo(Math.min(4, initialZoom * 1.25 ** 2), 2)
     const last = page.getByTestId(`memorial-${garden.id}-${garden.places}`)
     await last.focus()
     await expect(last).toBeInViewport()
@@ -106,12 +109,12 @@ for (const garden of gardens) {
     await expect(page.getByTestId('memorial-summary')).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('dialog').locator('.memorial-location')).toContainText(`Place ${garden.places}`)
-    await page.keyboard.press('Escape')
+    await page.getByTestId('memorial-detail-return').click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(last).toBeFocused()
-    await expect(page.locator('.camera-toolbar output')).toHaveText('156%')
+    await expect.poll(async () => Number(await scene.getAttribute('data-zoom'))).toBeCloseTo(Math.min(4, initialZoom * 1.25 ** 2), 2)
     await clearPreview(page)
-    const detail = await sceneryFrame(page, testInfo.outputPath(`${garden.id}-textured-ground-detail-156.png`))
+    const detail = await sceneryFrame(page, testInfo.outputPath(`${garden.id}-textured-ground-detail-zoomed.png`))
     await page.waitForTimeout(150)
     const repeated = await sceneryFrame(page)
     if (Buffer.compare(detail, repeated) !== 0) {
@@ -120,13 +123,13 @@ for (const garden of gardens) {
     }
     expect(Buffer.compare(detail, repeated)).toBe(0)
 
-    await page.getByTestId('garden-camera-reset').click()
-    await expect(scene).toHaveAttribute('data-zoom', '1.000')
-    await expect(scene).toHaveAttribute('data-camera-x', '0.00')
-    await expect(scene).toHaveAttribute('data-camera-y', '0.00')
+    await clickGardenControl(page, 'garden-camera-reset')
+    await expect(scene).toHaveAttribute('data-zoom', initialCamera[0]!)
+    await expect(scene).toHaveAttribute('data-camera-x', initialCamera[1]!)
+    await expect(scene).toHaveAttribute('data-camera-y', initialCamera[2]!)
     await page.getByTestId('garden-next').click()
     await expect(scene).toHaveAttribute('data-state', 'ready')
-    await expect(scene).toHaveAttribute('data-zoom', '1.000')
+    await expect(scene).toHaveAttribute('data-zoom', initialCamera[0]!)
     await expect(page.locator('canvas')).toHaveCount(1)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true)
     expect(images.every(url => new URL(url).origin === new URL(page.url()).origin)).toBe(true)

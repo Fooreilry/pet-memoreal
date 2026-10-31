@@ -1,3 +1,4 @@
+import { clickGardenControl } from '../e2e/helpers/garden-controls'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
@@ -169,7 +170,7 @@ test('collect mode gathers real animation and cold-ready timings, exports safe d
 
 test('panel controls change collection mode and 30/60 limits while CPU timings retain real tick cadence', async ({ page }) => {
   await visit(page)
-  await page.getByTestId('diagnostics-toggle').click()
+  await clickGardenControl(page, 'diagnostics-toggle')
   const panel = page.getByTestId('diagnostics-panel')
   await expect(panel).toBeVisible()
   await page.getByTestId('diagnostics-mode').click()
@@ -232,7 +233,7 @@ test('pause preserves tick samples while manual camera renders remain visible an
   const resumed = await report(page)
   expect(resumed.raw.tickIntervals.at(-1)).toBeLessThan(300)
   await paused(page, true)
-  await page.getByTestId('diagnostics-toggle').click()
+  await clickGardenControl(page, 'diagnostics-toggle')
   const previousId = (await snapshot(page)).runId
   await page.getByTestId('diagnostics-panel').getByRole('textbox').fill('acceptance-new-run')
   await page.getByTestId('diagnostics-start').click()

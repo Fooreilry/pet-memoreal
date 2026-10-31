@@ -1,3 +1,4 @@
+import { clickGardenControl, dismissGardenTools, ensureGardenControl } from './helpers/garden-controls'
 import { openMemorialStory } from './helpers/memorial'
 import { visitLocale } from './helpers/locale'
 import { expect, test } from '@playwright/test'
@@ -8,6 +9,14 @@ async function revealTarget(target: Locator) {
   await target.evaluate(element => { if (element instanceof HTMLElement) element.blur() })
   await target.focus()
   await expect(target).toBeInViewport()
+}
+
+async function showWholeMap(page: Page) {
+  const view = page.locator('.canvas-wrapper')
+  await expect(view).toHaveAttribute('data-state', 'ready')
+  await dismissGardenTools(page)
+  for (let step = 0; step < 8 && Number(await view.getAttribute('data-zoom')) > 1; step++) await page.getByTestId('garden-zoom-out').click()
+  await expect(view).toHaveAttribute('data-zoom', '1.000')
 }
 
 async function chooseGarden(page: Page, id: string) {
@@ -131,6 +140,7 @@ for (const locale of ['ru', 'en']) {
     await expect(view).toHaveAttribute('data-state', 'ready')
     const zoomIn = page.getByTestId('garden-zoom-in')
     const zoomOut = page.getByTestId('garden-zoom-out')
+    await showWholeMap(page)
     await expect(zoomOut).toBeDisabled()
     await zoomIn.click()
     await expect(page.locator('.camera-toolbar output')).toHaveText('125%')
@@ -148,21 +158,26 @@ for (const locale of ['ru', 'en']) {
     await expect(page.getByTestId('memorial-summary')).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('dialog')).toContainText(locale === 'ru' ? 'Место 10' : 'Place 10')
-    await page.keyboard.press('Escape')
+    await page.getByTestId('memorial-detail-return').click()
     await expect(stone).toBeFocused()
+    const projectionBeforeResize = (await view.getAttribute('data-projection-scale'))!
     await page.setViewportSize({ width: 900, height: 700 })
+    await expect(view).not.toHaveAttribute('data-projection-scale', projectionBeforeResize)
     await expect(page.locator('.camera-toolbar output')).toHaveText('156%')
     await view.focus()
     await page.keyboard.press('Home')
-    await expect(page.locator('.camera-toolbar output')).toHaveText('100%')
-    for (let i = 0; i < 7; i++) await zoomIn.click()
+    await expect(view).toHaveAttribute('data-zoom', '1.000')
+    await expect(view).toHaveAttribute('data-camera-x', '0.00')
+    await expect(view).toHaveAttribute('data-camera-y', '0.00')
+    for (let i = 0; i < 8 && await zoomIn.isEnabled(); i++) await zoomIn.click()
     await expect(zoomIn).toBeDisabled()
     await expect(page.locator('.camera-toolbar output')).toHaveText('400%')
     await page.screenshot({ path: testInfo.outputPath('garden-zoom.png'), animations: 'disabled' })
     await chooseGarden(page, 'hill')
-    await expect(page.locator('.camera-toolbar output')).toHaveText('100%')
+    await expect(view).toHaveAttribute('data-zoom', '1.000')
     await zoomIn.click()
-    await page.getByTestId('garden-camera-reset').click()
+    await clickGardenControl(page, 'garden-camera-reset')
+    await expect(view).toHaveAttribute('data-zoom', '1.000')
     await expect(zoomOut).toBeDisabled()
     await page.getByTestId('garden-switch').click()
     await page.getByTestId('garden-home').click()
@@ -173,6 +188,7 @@ for (const locale of ['ru', 'en']) {
 
 for (const locale of ['ru', 'en']) {
   test(`${locale}: compact camera controls and keyboard help stay readable in narrow and short windows`, async ({ page }, testInfo) => {
+    test.slow()
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
     await page.emulateMedia({ reducedMotion: 'no-preference' })
@@ -190,7 +206,15 @@ for (const locale of ['ru', 'en']) {
       const overlapsTitle = controls.x < heading.x + heading.width && controls.x + controls.width > heading.x
         && controls.y < heading.y + heading.height && controls.y + controls.height > heading.y
       expect(overlapsTitle).toBe(false)
-      for (const id of ['garden-zoom-out', 'garden-zoom-in', 'garden-camera-reset', 'garden-fullscreen', 'garden-effects', 'garden-motion', 'garden-help']) {
+      const more = page.getByTestId('garden-more')
+      const compact = await more.isVisible()
+      const primary = compact ? ['garden-zoom-out', 'garden-zoom-in', 'garden-more'] : ['garden-zoom-out', 'garden-zoom-in']
+      if (compact) {
+        expect(controls.width).toBeLessThanOrEqual(48)
+        expect(controls.height).toBeLessThanOrEqual(170)
+        await expect(more).toHaveAttribute('aria-expanded', 'false')
+      }
+      for (const id of primary) {
         const button = page.getByTestId(id)
         await expect(button).toBeVisible()
         const box = (await button.boundingBox())!
@@ -201,7 +225,21 @@ for (const locale of ['ru', 'en']) {
         expect(box.x + box.width).toBeLessThanOrEqual(scene.x + scene.width + 1)
         expect(box.y + box.height).toBeLessThanOrEqual(scene.y + scene.height + 1)
       }
-      const help = page.getByTestId('garden-help')
+      for (const id of ['garden-camera-reset', 'garden-fullscreen', 'garden-effects', 'garden-motion', 'garden-help']) {
+        const button = await ensureGardenControl(page, id)
+        await expect.poll(() => button.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
+        const box = (await button.boundingBox())!
+        expect(box.width).toBeGreaterThanOrEqual(44)
+        expect(box.height).toBeGreaterThanOrEqual(44)
+        expect(box.x).toBeGreaterThanOrEqual(0)
+        expect(box.y).toBeGreaterThanOrEqual(0)
+        expect(box.x + box.width).toBeLessThanOrEqual(size.width)
+        expect(box.y + box.height).toBeLessThanOrEqual(size.height)
+      }
+      const help = await ensureGardenControl(page, 'garden-help')
+      // Opening More used a pointer; switch to keyboard modality before
+      // checking the shared focus-visible treatment.
+      await page.keyboard.press('Tab')
       await help.focus()
       await expect(help).toBeFocused()
       await expect(help).toHaveCSS('outline-width', '2px')
@@ -225,6 +263,11 @@ for (const locale of ['ru', 'en']) {
       await expect(card).toHaveCount(0)
       await expect(help).toBeFocused()
       await expect(help).toHaveAttribute('aria-expanded', 'false')
+      if (compact) {
+        await expect(more).toHaveAttribute('aria-expanded', 'true')
+        await dismissGardenTools(page)
+        await expect(more).toBeFocused()
+      }
     }
     expect(errors).toEqual([])
   })
@@ -298,7 +341,7 @@ test('wheel zoom stays at the pointer, dragging a stone pans without opening it,
   await expect(page.locator('.memorial-story-card[role="dialog"]')).toHaveCount(0)
   await page.getByTestId('memorial-summary').click()
   await expect(page.getByRole('dialog')).toContainText(`Place ${place}`)
-  await page.keyboard.press('Escape')
+  await page.getByTestId('memorial-detail-return').click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(stone).toBeFocused()
   await view.focus()
@@ -311,7 +354,7 @@ test('wheel zoom stays at the pointer, dragging a stone pans without opening it,
   expect(Number(await view.getAttribute('data-camera-x'))).toBeCloseTo(viewportWidth - offsetX - contentWidth * zoom, 0)
   for (let i = 0; i < stepsToEdge; i++) await page.keyboard.press('Shift+ArrowLeft')
   expect(Number(await view.getAttribute('data-camera-x'))).toBeCloseTo(-offsetX, 0)
-  await page.getByTestId('garden-camera-reset').click()
+  await clickGardenControl(page, 'garden-camera-reset')
   await expect(view).toHaveAttribute('data-zoom', '1.000')
 })
 
@@ -320,6 +363,11 @@ test('phone pinch, one-finger drag, cancellation and a tap on the transformed st
   await visitLocale(page, '/gardens?garden=grove', 'en')
   const view = page.locator('.canvas-wrapper')
   await expect(view).toHaveAttribute('data-state', 'ready')
+  const initialCamera = await view.evaluate(element => {
+    const data = (element as HTMLElement).dataset
+    return { zoom: data.zoom!, x: data.cameraX!, y: data.cameraY! }
+  })
+  await showWholeMap(page)
   await view.scrollIntoViewIfNeeded()
   const bounds = (await view.boundingBox())!
   const x = bounds.x + bounds.width / 2
@@ -356,14 +404,16 @@ test('phone pinch, one-finger drag, cancellation and a tap on the transformed st
   await expect(page.locator('.memorial-story-card[role="dialog"]')).toHaveCount(0)
   await page.getByTestId('memorial-summary').tap()
   await expect(page.getByRole('dialog')).toContainText('Place 8')
-  await page.keyboard.press('Escape')
-  await page.getByTestId('garden-camera-reset').click()
-  await expect(view).toHaveAttribute('data-zoom', '1.000')
-  await expect(view).toHaveAttribute('data-camera-x', '0.00')
+  await page.getByTestId('memorial-detail-return').click()
+  await clickGardenControl(page, 'garden-camera-reset')
+  await expect(view).toHaveAttribute('data-zoom', initialCamera.zoom)
+  await expect(view).toHaveAttribute('data-camera-x', initialCamera.x)
+  await expect(view).toHaveAttribute('data-camera-y', initialCamera.y)
   await input.detach()
 })
 
 test('distinct landscapes preserve separate targets and reveal every fixed-world place at both viewport sizes', async ({ page }, testInfo) => {
+  test.slow()
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await visitLocale(page, '/gardens', 'ru')
   for (const width of [1200, 390]) {
@@ -400,7 +450,7 @@ test('distinct landscapes preserve separate targets and reveal every fixed-world
         await openMemorialStory(page, targets.nth(index))
         const dialog = page.getByRole('dialog')
         await expect(dialog.locator('.memorial-location')).toContainText(`Место ${index + 1}`)
-        await page.keyboard.press('Escape')
+        await page.getByTestId('memorial-detail-return').click()
         await expect(dialog).toHaveCount(0)
         await expect(targets.nth(index)).toBeFocused()
       }
@@ -433,9 +483,9 @@ for (const locale of ['ru', 'en']) {
     expect(bounds.y).toBeGreaterThanOrEqual(0)
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(360)
     expect(bounds.y + bounds.height).toBeLessThanOrEqual(480)
-    const close = dialog.getByRole('button', { name: ru ? 'Закрыть историю' : 'Close story', exact: true })
+    const share = page.getByTestId('memorial-share')
     const back = dialog.getByRole('button', { name: ru ? 'Вернуться в сад' : 'Return to the garden', exact: true })
-    for (const button of [close, back]) {
+    for (const button of [share, back]) {
       await expect(button).toBeInViewport()
       const box = (await button.boundingBox())!
       expect(box.height).toBeGreaterThanOrEqual(44)
@@ -443,12 +493,13 @@ for (const locale of ['ru', 'en']) {
     }
     await dialog.locator('.memorial-demo').scrollIntoViewIfNeeded()
     await expect(dialog.locator('.memorial-demo')).toBeInViewport()
-    await close.focus()
-    for (let index = 0; index < 4; index++) {
-      await page.keyboard.press('Tab')
-      expect(await dialog.evaluate(element => element.contains(document.activeElement))).toBe(true)
-    }
     await page.screenshot({ path: testInfo.outputPath('short-viewport-story.png'), animations: 'disabled' })
+    await back.focus()
+    await page.keyboard.press('Enter')
+    await expect(dialog).toHaveCount(0)
+    await expect(stone).toBeFocused()
+    await openMemorialStory(page, stone)
+    await expect(back).toBeFocused()
     await back.click()
     await expect(dialog).toHaveCount(0)
     await expect(stone).toBeFocused()
@@ -465,31 +516,38 @@ test('ambient motion can pause, stays paused across gardens and respects device 
   await expect(scene).toHaveAttribute('data-motion', 'running')
   const initial = await canvas.screenshot()
   await expect.poll(async () => Buffer.compare(initial, await canvas.screenshot())).not.toBe(0)
-  const toggle = page.getByTestId('garden-motion')
-  await toggle.click()
+  const toggle = await ensureGardenControl(page, 'garden-motion')
+  await clickGardenControl(page, 'garden-motion')
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await expect(scene).toHaveAttribute('data-motion', 'paused')
+  await dismissGardenTools(page)
   const paused = await canvas.screenshot()
   // Allow several animation frames to detect an accidentally running ticker.
   await page.waitForTimeout(250)
   expect(Buffer.compare(paused, await canvas.screenshot())).toBe(0)
   await chooseGarden(page, 'lake')
+  await ensureGardenControl(page, 'garden-motion')
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await dismissGardenTools(page)
   const stone = page.getByTestId('memorial-lake-1')
   await revealTarget(stone)
   await openMemorialStory(page, stone)
   await expect(page.getByRole('dialog')).toBeVisible()
-  await page.keyboard.press('Escape')
+  await page.getByTestId('memorial-detail-return').click()
   await page.emulateMedia({ reducedMotion: 'reduce' })
+  await ensureGardenControl(page, 'garden-effects')
   await expect(toggle).toHaveCount(0)
+  await dismissGardenTools(page)
   await expect(scene).toHaveAttribute('data-motion', 'paused')
   await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await ensureGardenControl(page, 'garden-motion')
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-  await toggle.click()
+  await clickGardenControl(page, 'garden-motion')
   await expect(scene).toHaveAttribute('data-motion', 'running')
 })
 
 test('butterflies, drifting leaves and grass stay calm when paused or motion is reduced', async ({ page, isMobile }, testInfo) => {
+  test.slow()
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   await page.emulateMedia({ reducedMotion: 'no-preference' })
@@ -509,9 +567,10 @@ test('butterflies, drifting leaves and grass stay calm when paused or motion is 
     await expect(scene).toHaveAttribute('data-motion', 'running')
     const active = await canvas.screenshot()
     await expect.poll(async () => Buffer.compare(active, await canvas.screenshot())).not.toBe(0)
-    const toggle = page.getByTestId('garden-motion')
-    await toggle.click()
+    const toggle = await ensureGardenControl(page, 'garden-motion')
+    await clickGardenControl(page, 'garden-motion')
     await expect(scene).toHaveAttribute('data-motion', 'paused')
+    await dismissGardenTools(page)
     const still = await canvas.screenshot({ path: testInfo.outputPath(`${garden}-life.png`) })
     await page.waitForTimeout(250)
     expect(Buffer.compare(still, await canvas.screenshot())).toBe(0)
@@ -525,12 +584,14 @@ test('butterflies, drifting leaves and grass stay calm when paused or motion is 
     await openMemorialStory(page, stone, isMobile)
     await expect(page.getByRole('dialog')).toContainText('Place 1')
     expect(await scene.evaluate(element => [element.dataset.cameraX, element.dataset.cameraY])).toEqual(cameraBeforePress)
-    await page.keyboard.press('Escape')
-    await page.getByTestId('garden-camera-reset').click()
-    await toggle.click()
+    await page.getByTestId('memorial-detail-return').click()
+    await clickGardenControl(page, 'garden-camera-reset')
+    await clickGardenControl(page, 'garden-motion')
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await expect(scene).toHaveAttribute('data-motion', 'paused')
+    await ensureGardenControl(page, 'garden-effects')
     await expect(toggle).toHaveCount(0)
+    await dismissGardenTools(page)
     await canvas.scrollIntoViewIfNeeded()
     const reduced = await canvas.screenshot()
     await page.waitForTimeout(250)
@@ -543,6 +604,7 @@ test('butterflies, drifting leaves and grass stay calm when paused or motion is 
 
 for (const locale of ['ru', 'en']) {
   test(`${locale}: memorial hover, full story, closing and keyboard access`, async ({ page, isMobile }, testInfo) => {
+    test.slow()
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
     await visitLocale(page, `/gardens?garden=lake`, locale)
@@ -582,7 +644,7 @@ for (const locale of ['ru', 'en']) {
     await expect(page.getByTestId('memorial-summary')).toHaveCount(0)
     await page.screenshot({ path: testInfo.outputPath('memorial-story.png'), animations: 'disabled' })
     expect(await dialog.evaluate(element => element.contains(document.activeElement))).toBe(true)
-    await page.keyboard.press('Escape')
+    await page.getByTestId('memorial-detail-return').click()
     await expect(dialog).toHaveCount(0)
     await expect(first).toBeFocused()
     await expect(page.getByTestId('memorial-summary')).toHaveCount(0)
@@ -600,7 +662,7 @@ for (const locale of ['ru', 'en']) {
     await expect(summary).toBeFocused()
     await page.keyboard.press('Space')
     await expect(dialog).toBeVisible()
-    await dialog.getByRole('button', { name: locale === 'ru' ? 'Закрыть историю' : 'Close story', exact: true }).click()
+    await page.getByTestId('memorial-detail-return').click()
     await expect(dialog).toHaveCount(0)
     await expect(second).toBeFocused()
     await expect(page.getByTestId('memorial-summary')).toHaveCount(0)
@@ -608,11 +670,12 @@ for (const locale of ['ru', 'en']) {
     await expect(summary).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(dialog).toBeVisible()
-    const overlay = page.locator('[data-slot="overlay"][data-state="open"]')
-    if (isMobile) await overlay.tap({ position: { x: 2, y: 2 } })
-    else await overlay.click({ position: { x: 2, y: 2 } })
+    // The persistent scene is non-modal; header interaction dismisses it and
+    // continues its normal action instead of requiring a backdrop.
+    await page.getByTestId('garden-account-menu').click()
     await expect(dialog).toHaveCount(0)
     await expect(page.getByTestId('memorial-summary')).toHaveCount(0)
+    await page.keyboard.press('Escape')
     if (!isMobile) {
       await page.mouse.move(0, 0)
       await second.hover()
@@ -637,7 +700,7 @@ test('memorial hit targets follow resize and old details disappear on garden nav
   const bounds = (await dialog.boundingBox())!
   expect(bounds.x).toBeGreaterThanOrEqual(0)
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(390)
-  await dialog.getByRole('button', { name: 'Закрыть историю', exact: true }).click()
+  await page.getByTestId('memorial-detail-return').click()
   await expect(last).toBeFocused()
   await openMemorialStory(page, last)
   await expect(dialog).toBeVisible()

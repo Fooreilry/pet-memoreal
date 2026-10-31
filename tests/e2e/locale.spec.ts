@@ -33,7 +33,7 @@ test('manual language choice persists across navigation and reload, including a 
   await page.route('**/api/gardens/*/memorials', route => route.fulfill({ json: [] }))
   await page.goto('/gardens?garden=lake&memorial=lake-1#garden-main')
   await expect(page.locator('html')).toHaveAttribute('lang', 'ru')
-  await page.getByRole('dialog').getByRole('button', { name: 'Закрыть историю', exact: true }).click()
+  await page.getByTestId('memorial-detail-return').click()
   await page.locator('.language-link').click()
   await expect(page).toHaveURL(/\/gardens\?garden=lake&memorial=lake-1#garden-main$/)
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')

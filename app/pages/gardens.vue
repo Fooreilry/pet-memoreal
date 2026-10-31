@@ -83,6 +83,12 @@ watch([() => selected.value?.id, sceneReady], async () => {
   if (!sceneReady.value || focusId.value || focusedView === view) return
   await nextTick()
   if (!sceneReady.value || (selected.value?.id ?? 'overview') !== view) return
+  // Finishing the scene must not steal focus from a header or camera action
+  // already started by the visitor, including its portaled menu.
+  if (document.activeElement?.closest('[data-testid="garden-header"], [role="menu"], .camera-toolbar, .garden-tools-menu') || document.querySelector('[data-testid="garden-header"] [aria-expanded="true"]')) {
+    focusedView = view
+    return
+  }
   heading.value?.focus({ preventScroll: true })
   focusedView = view
 })
@@ -175,14 +181,20 @@ watch(() => selected.value?.id, (id) => { if (!id) fullscreen.value = false })
 .garden-menu-links a:hover { background: var(--ui-bg-muted); }
 .garden-menu-links .iconify { width: 17px; height: 17px; }
 .garden-fallback { position: absolute; inset: 0; display: grid; place-items: center; background: var(--color-garden-950); }
-@media (max-width: 600px) {
+@media (max-width: 600px), (pointer: coarse) and (max-width: 1000px) {
   .garden-stage { margin: 0 8px calc(8px + env(safe-area-inset-bottom)); }
-  .garden-switch { top: calc(12px + env(safe-area-inset-top)); left: calc(12px + env(safe-area-inset-left)); width: 48px; gap: 3px; padding: 0; }
+  .garden-control { min-width: 44px; min-height: 44px; gap: 8px; padding: 8px 12px; box-shadow: none; }
+  .garden-control > .iconify { width: 18px; height: 18px; }
+  .garden-switch { top: calc(12px + env(safe-area-inset-top)); left: calc(12px + env(safe-area-inset-left)); width: 44px; gap: 3px; padding: 0; }
   .garden-switch-label { display: none; }
   .garden-switch-chevron { width: 12px !important; }
-  .garden-title { top: calc(12px + env(safe-area-inset-top)); max-width: calc(100% - 152px); min-height: 48px; display: grid; place-items: center; padding: 10px 20px; font-size: 23px; }
+  .garden-title { top: calc(12px + env(safe-area-inset-top)); max-width: calc(100% - 136px); min-height: 44px; display: grid; place-items: center; padding: 8px 14px; font-size: 22px; }
   .garden-paths { left: calc(12px + env(safe-area-inset-left)); right: calc(12px + env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); }
-  .garden-path { min-width: 116px; min-height: 56px; padding: 8px 12px; font-size: 14px; }
+  .garden-path { min-width: 96px; min-height: 44px; padding: 8px 12px; font-size: 13px; }
+  .garden-menu { display: flex; flex-direction: column; max-height: min(440px, calc(100dvh - 90px), calc(var(--reka-popover-content-available-height, 440px) - env(safe-area-inset-bottom))); overflow: hidden; }
+  .garden-menu-heading, .garden-menu-links { flex-shrink: 0; }
+  .garden-menu nav { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .garden-menu nav button:focus-visible { outline-offset: -2px; }
 }
 @media (max-height: 450px) { .garden-title { font-size: 23px; } .garden-paths { bottom: calc(12px + env(safe-area-inset-bottom)); } .garden-path { min-height: 44px; padding-block: 6px; } .garden-path-label { display: none; } }
 @media (prefers-reduced-motion: reduce) { .garden-title { transition: none; } }

@@ -124,7 +124,9 @@ export function validateGardenBenchmarkRun(report: GardenBenchmarkReportConditio
   }
   if (expected.scenario === 'pointer-wheel') {
     require((expected.interactions?.pointerMoves ?? 0) > 4 && expected.interactions?.wheels === gardenBenchmarkWheelSteps.length, 'input-not-consumed')
-    require(report.counts.manualRenders > 4, 'input-did-not-render')
+    // Input shares the running ticker's render; manual camera frames are only
+    // needed when animation is stopped, outside this active benchmark.
+    require(report.counts.renders > 4, 'input-did-not-render')
     require(expected.inputKind === 'trusted-playwright' || expected.inputKind === 'synthetic-events', 'input-kind-missing')
   }
   for (const error of expected.errors ?? []) reasons.push(`runtime-error: ${error}`)

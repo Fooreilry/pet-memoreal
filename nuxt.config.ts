@@ -21,7 +21,8 @@ export default defineNuxtConfig({
       icons: [
         ...Object.values(petSpeciesIcons).flatMap(drawing => 'icon' in drawing ? [drawing.icon.replace('i-lucide-', 'lucide:')] : []),
         'lucide:cloud-rain', 'lucide:sun', 'lucide:sun-medium', 'lucide:cloud-sun',
-        'lucide:gauge', 'lucide:x', 'lucide:download', 'lucide:rotate-ccw'
+        'lucide:gauge', 'lucide:x', 'lucide:download', 'lucide:rotate-ccw',
+        'lucide:share-2', 'lucide:check'
       ]
     }
   },

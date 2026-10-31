@@ -33,8 +33,9 @@ test('the green hill opens from its preview and every monument stays reachable b
   await expect(page.locator('.memorial-empty')).toHaveCount(10)
   await clearPreview(page)
   await canvas.screenshot({ path: testInfo.outputPath('hill-garden.png') })
+  const initialZoom = Number(await scene.getAttribute('data-zoom'))
   await page.getByTestId('garden-zoom-in').click()
-  await expect(page.locator('.camera-toolbar output')).toHaveText('125%')
+  await expect.poll(async () => Number(await scene.getAttribute('data-zoom'))).toBeCloseTo(Math.min(4, initialZoom * 1.25), 2)
   for (const place of [1, 2, 7, 14]) {
     const stone = page.getByTestId(`memorial-hill-${place}`)
     await stone.focus()

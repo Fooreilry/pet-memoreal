@@ -1,3 +1,4 @@
+import { clickGardenControl } from '../e2e/helpers/garden-controls'
 import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
 import { localeCookieName } from '../../shared/locale'
@@ -41,7 +42,7 @@ test('diagnostics panel fits desktop and narrow phones with scrollable readings 
     await expect(scene).toHaveAttribute('data-state', 'ready')
     await expect(scene).toHaveAttribute('data-transition', 'idle')
     await expect.poll(() => page.evaluate(() => !!(window as Window & { __gardenDiagnostics?: { ready: () => boolean } }).__gardenDiagnostics?.ready())).toBe(true)
-    await toggle.click()
+    await clickGardenControl(page, 'diagnostics-toggle')
     await expect(panel).toBeVisible()
     await expect(scene).toHaveAttribute('data-diagnostics', 'panel')
     await expect(panel.getByRole('table')).toBeVisible()

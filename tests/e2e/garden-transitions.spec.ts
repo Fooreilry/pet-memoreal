@@ -342,7 +342,7 @@ for (const reducedMotion of ['reduce', 'no-preference'] as const) {
       await expect.poll(() => blurAmount(page.locator('.canvas-host'))).toBe(0)
       await expect(page.getByTestId('memorial-detail')).toBeVisible()
       await page.screenshot({ path: testInfo.outputPath(`stationary-detail-${reducedMotion}.png`), animations: 'disabled', scale: 'css' })
-      await page.getByTestId('memorial-detail-close').click()
+      await page.getByTestId('memorial-detail-return').click()
       await expect(scene).toHaveAttribute('data-detail-state', 'none')
       await mapReady(page)
       expect(page.url()).toBe(url)
@@ -435,7 +435,7 @@ test('a failed deferred return from a memorial clears its scene and can recover 
   await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-detail-state', 'ready')
   await failQueuedGpuDraws(page)
   try {
-    await page.getByTestId('memorial-detail-close').click()
+    await page.getByTestId('memorial-detail-return').click()
     await expect(page.locator('.canvas-wrapper')).toHaveAttribute('data-state', 'error')
     const alert = page.getByRole('alert')
     await expect(alert).toBeVisible()

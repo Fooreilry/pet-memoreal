@@ -1,3 +1,4 @@
+import { clickGardenControl } from '../e2e/helpers/garden-controls'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
@@ -36,7 +37,7 @@ async function visit(page: Page) {
 async function report(page: Page) { return page.evaluate(() => (window as Runtime).__gardenDiagnostics!.report()) }
 
 async function open(page: Page) {
-  await page.getByTestId('diagnostics-toggle').click()
+  await clickGardenControl(page, 'diagnostics-toggle')
   await expect(page.getByTestId('diagnostics-panel')).toBeVisible()
 }
 
@@ -130,6 +131,7 @@ test('changing FPS separates recording conditions while collect mode retains arc
 })
 
 test('controlled benchmark locks conflicting controls, cancels explicitly and cancels if its panel is closed', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
   await visit(page)
   await open(page)
   await expect(page.getByTestId('diagnostics-benchmark-scenario')).toContainText('Camera movement')
@@ -190,7 +192,7 @@ test('pointer benchmark reaches the real handlers without dismissing its panel a
   const results = await page.evaluate(() => (window as Runtime).__gardenDiagnostics!.results())
   expect(results).toHaveLength(1)
   expect(results[0]!.validation).toEqual({ valid: false, reasons: ['cancelled'], inputKind: 'synthetic-events' })
-  expect(results[0]!.counts.manualRenders).toBeGreaterThan(0)
+  expect(results[0]!.counts.renders).toBeGreaterThan(0)
   expect(results[0]!.recording).toBe(false)
 })
 
